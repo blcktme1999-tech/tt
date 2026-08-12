@@ -34,6 +34,12 @@ https://你的後端網址/
 https://你的後端網址/service/
 ```
 
+對應檔案：
+
+```text
+public/service.html
+```
+
 管理端：
 
 ```text

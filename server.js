@@ -93,6 +93,11 @@ const sessionMiddleware = session({
 app.use(express.json({ limit: '2mb' }));
 app.use(sessionMiddleware);
 app.use('/uploads', express.static(UPLOAD_DIR));
+
+app.get(['/service', '/service/'], (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'service.html'));
+});
+
 app.use('/service', express.static(PUBLIC_DIR));
 
 app.get('/', (_req, res) => {

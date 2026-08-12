@@ -7,11 +7,11 @@
   "rewrites": [
     {
       "source": "/service",
-      "destination": "/public/index.html"
+      "destination": "/public/service.html"
     },
     {
       "source": "/service/",
-      "destination": "/public/index.html"
+      "destination": "/public/service.html"
     },
     {
       "source": "/service/:path*",
