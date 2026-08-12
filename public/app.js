@@ -34,11 +34,15 @@ async function api(path, options = {}) {
 
 function createDemoSocket() {
   const handlers = {};
+  const dispatch = (event, payload) => {
+    (handlers[event] || []).forEach((callback) => callback(payload));
+  };
   return {
     on(event, callback) {
       handlers[event] = handlers[event] || [];
       handlers[event].push(callback);
     },
+    dispatch,
     emit(event, payload) {
       if (event === 'message:create') {
         const db = getDemoDb();
@@ -55,8 +59,10 @@ function createDemoSocket() {
         };
         db.messages.push(message);
         setDemoDb(db);
-        (handlers['message:created'] || []).forEach((callback) => callback(message));
+        dispatch('message:created', message);
       }
+      if (event === 'call:join') dispatch('call:peer-ready');
+      if (event === 'call:leave') dispatch('call:peer-left');
     }
   };
 }
@@ -135,9 +141,10 @@ async function demoApi(path, options = {}) {
   const filesMatch = path.match(/^\/api\/cases\/([^/]+)\/files$/);
   if (filesMatch && method === 'POST') {
     const file = body.get('video');
-    const saved = { id: demoId(), uploadedBy: db.session.user?.displayName || '民眾', originalName: file?.name || 'demo-video.webm', storedName: '', mimeType: file?.type || 'video/webm', size: file?.size || 0, kind: body.get('kind') || 'upload', createdAt: new Date().toISOString(), url: '#' };
+    const saved = { id: demoId(), uploadedBy: db.session.user?.displayName || '民眾', originalName: file?.name || 'demo-video.webm', storedName: '', mimeType: file?.type || 'video/webm', size: file?.size || 0, kind: body.get('kind') || 'upload', createdAt: new Date().toISOString(), url: file ? URL.createObjectURL(file) : '#' };
     db.files.push({ ...saved, caseId: filesMatch[1] });
     setDemoDb(db);
+    socket.dispatch?.('file:created', saved);
     return { file: saved };
   }
   if (filesMatch) return { files: db.files.filter((file) => file.caseId === filesMatch[1]) };
@@ -159,6 +166,10 @@ function showNotice(text, type = 'info') {
   const notice = $('#citizenStatus');
   notice.textContent = text;
   notice.className = `notice ${type}`;
+}
+
+function reportActionError(error) {
+  window.alert(error.message || '操作失敗，請稍後再試。');
 }
 
 function activatePanel(panelId) {
@@ -308,18 +319,22 @@ async function renderMedia(root, caseItem) {
     </div>
   `;
   files.forEach((file) => appendFile($('.file-list', root), file));
-  $('[data-action="startCamera"]', root).addEventListener('click', startCamera);
-  $('[data-action="startRecord"]', root).addEventListener('click', startRecording);
+  $('[data-action="startCamera"]', root).addEventListener('click', () => startCamera().catch(reportActionError));
+  $('[data-action="startRecord"]', root).addEventListener('click', () => startRecording().catch(reportActionError));
   $('[data-action="stopRecord"]', root).addEventListener('click', () => stopRecording(caseItem.id));
-  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id));
+  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id).catch(reportActionError));
   $('[data-action="leaveCall"]', root).addEventListener('click', () => leaveCall(caseItem.id));
   $('.upload-form', root).addEventListener('submit', async (event) => {
     event.preventDefault();
-    const formData = new FormData();
-    formData.append('video', event.currentTarget.video.files[0]);
-    formData.append('kind', 'upload');
-    await api(`/api/cases/${caseItem.id}/files`, { method: 'POST', body: formData });
-    event.currentTarget.reset();
+    try {
+      const formData = new FormData();
+      formData.append('video', event.currentTarget.video.files[0]);
+      formData.append('kind', 'upload');
+      await api(`/api/cases/${caseItem.id}/files`, { method: 'POST', body: formData });
+      event.currentTarget.reset();
+    } catch (error) {
+      reportActionError(error);
+    }
   });
 }
 
@@ -334,6 +349,7 @@ function appendFile(list, file) {
 }
 
 async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('此瀏覽器或網址不支援鏡頭 API，請使用 HTTPS 或 localhost 測試。');
   state.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   const localVideo = $('#localVideo');
   if (localVideo) localVideo.srcObject = state.localStream;
@@ -342,8 +358,10 @@ async function startCamera() {
 
 async function startRecording() {
   if (!state.localStream) await startCamera();
+  if (!window.MediaRecorder) throw new Error('此瀏覽器不支援 MediaRecorder 錄影 API。');
   state.chunks = [];
-  state.recorder = new MediaRecorder(state.localStream, { mimeType: 'video/webm' });
+  const options = MediaRecorder.isTypeSupported('video/webm') ? { mimeType: 'video/webm' } : undefined;
+  state.recorder = new MediaRecorder(state.localStream, options);
   state.recorder.ondataavailable = (event) => event.data.size && state.chunks.push(event.data);
   state.recorder.start();
 }
@@ -351,11 +369,11 @@ async function startRecording() {
 function stopRecording(caseId) {
   if (!state.recorder || state.recorder.state === 'inactive') return;
   state.recorder.onstop = async () => {
-    const blob = new Blob(state.chunks, { type: 'video/webm' });
+    const blob = new Blob(state.chunks, { type: state.recorder.mimeType || 'video/webm' });
     const formData = new FormData();
     formData.append('video', blob, `video-statement-${Date.now()}.webm`);
     formData.append('kind', 'recording');
-    await api(`/api/cases/${caseId}/files`, { method: 'POST', body: formData });
+    await api(`/api/cases/${caseId}/files`, { method: 'POST', body: formData }).catch(reportActionError);
   };
   state.recorder.stop();
 }
@@ -363,6 +381,15 @@ function stopRecording(caseId) {
 async function joinCall(caseId) {
   if (!state.localStream) await startCamera();
   state.joinedCall = true;
+  if (demoMode) {
+    const remoteVideo = $('#remoteVideo');
+    if (remoteVideo) {
+      remoteVideo.srcObject = state.localStream;
+      await remoteVideo.play().catch(() => {});
+    }
+    socket.emit('call:join', caseId);
+    return;
+  }
   state.peer = createPeer(caseId);
   state.localStream.getTracks().forEach((track) => state.peer.addTrack(track, state.localStream));
   socket.emit('call:join', caseId);
@@ -387,6 +414,8 @@ function leaveCall(caseId) {
   state.peer?.close();
   state.peer = null;
   state.joinedCall = false;
+  const remoteVideo = $('#remoteVideo');
+  if (remoteVideo) remoteVideo.srcObject = null;
   socket.emit('call:leave', caseId);
 }
 
