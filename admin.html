@@ -3,24 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>線上報案客服系統</title>
+  <title>管理後台 - 線上報案客服系統</title>
   <link rel="stylesheet" href="/public/styles.css">
 </head>
 <body>
   <header class="app-header">
     <div>
-      <p class="eyebrow">便民服務</p>
+      <p class="eyebrow">管理後台</p>
       <h1>線上報案客服系統</h1>
     </div>
     <nav class="top-actions">
-      <button class="tab-button active" data-panel="citizenPanel">民眾端</button>
+      <button class="tab-button" data-panel="citizenPanel">民眾端</button>
       <button class="tab-button" data-panel="staffPanel">客服端</button>
-      <button class="tab-button" data-panel="adminPanel">管理端</button>
+      <button class="tab-button active" data-panel="adminPanel">管理端</button>
     </nav>
   </header>
 
   <main class="layout">
-    <section id="citizenPanel" class="panel active">
+    <section id="citizenPanel" class="panel">
       <div class="surface intro-surface">
         <div>
           <p class="eyebrow">姓名 + 身分證/居留證號</p>
@@ -50,7 +50,7 @@
       <div id="staffWorkspace" class="workspace hidden"></div>
     </section>
 
-    <section id="adminPanel" class="panel">
+    <section id="adminPanel" class="panel active">
       <div class="surface compact">
         <h2>管理端</h2>
         <p class="muted">管理員可審核民眾服務、建立客服帳號，並檢視所有案件紀錄。</p>

@@ -1,4 +1,5 @@
-const socket = io();
+const socket = window.io ? window.io() : createDemoSocket();
+const demoMode = !window.io;
 
 const state = {
   me: null,
@@ -15,13 +16,143 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: options.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
-    ...options
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || '請稍後再試');
-  return data;
+  try {
+    const response = await fetch(path, {
+      headers: options.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
+      ...options
+    });
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) throw new Error('靜態測試模式');
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || '請稍後再試');
+    return data;
+  } catch (error) {
+    if (demoMode) return demoApi(path, options);
+    throw error;
+  }
+}
+
+function createDemoSocket() {
+  const handlers = {};
+  return {
+    on(event, callback) {
+      handlers[event] = handlers[event] || [];
+      handlers[event].push(callback);
+    },
+    emit(event, payload) {
+      if (event === 'message:create') {
+        const db = getDemoDb();
+        const caseItem = db.cases.find((item) => item.id === payload.caseId);
+        if (!caseItem || !String(payload.body || '').trim()) return;
+        const sender = db.session.user || { role: 'citizen', displayName: caseItem.citizenName };
+        const message = {
+          id: demoId(),
+          caseId: caseItem.id,
+          senderType: sender.role === 'admin' ? 'admin' : sender.role === 'agent' ? 'agent' : 'citizen',
+          senderName: sender.displayName || caseItem.citizenName,
+          body: String(payload.body).trim(),
+          createdAt: new Date().toISOString()
+        };
+        db.messages.push(message);
+        setDemoDb(db);
+        (handlers['message:created'] || []).forEach((callback) => callback(message));
+      }
+    }
+  };
+}
+
+function demoId() {
+  return `demo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getDemoDb() {
+  const saved = localStorage.getItem('cib-demo-db');
+  if (saved) return JSON.parse(saved);
+  const db = {
+    session: {},
+    users: [
+      { id: 'admin', username: 'admin', password: 'admin123', role: 'admin', displayName: '系統管理員', createdAt: new Date().toISOString() }
+    ],
+    cases: [
+      { id: 'demo-case-1', citizenName: '測試民眾', status: 'pending', createdAt: new Date().toISOString(), approvedAt: null }
+    ],
+    messages: [
+      { id: 'demo-message-1', caseId: 'demo-case-1', senderType: 'system', senderName: '系統', body: '這是 Vercel 靜態測試模式，可測登入、開帳號與審核流程。', createdAt: new Date().toISOString() }
+    ],
+    files: []
+  };
+  setDemoDb(db);
+  return db;
+}
+
+function setDemoDb(db) {
+  localStorage.setItem('cib-demo-db', JSON.stringify(db));
+}
+
+async function demoApi(path, options = {}) {
+  const db = getDemoDb();
+  const method = options.method || 'GET';
+  const body = options.body instanceof FormData ? options.body : JSON.parse(options.body || '{}');
+
+  if (path === '/api/me') return { user: db.session.user || null, case: db.session.case || null };
+
+  if (path === '/api/citizen/start' && method === 'POST') {
+    let caseItem = db.cases.find((item) => item.citizenName === body.citizenName);
+    if (!caseItem) {
+      caseItem = { id: demoId(), citizenName: body.citizenName, status: 'pending', createdAt: new Date().toISOString(), approvedAt: null };
+      db.cases.push(caseItem);
+      db.messages.push({ id: demoId(), caseId: caseItem.id, senderType: 'system', senderName: '系統', body: '民眾已送出線上客服開通申請，等待管理員審核。', createdAt: new Date().toISOString() });
+    }
+    db.session.case = caseItem.status === 'open' ? caseItem : null;
+    setDemoDb(db);
+    return { status: caseItem.status === 'open' ? 'open' : 'pending', case: caseItem };
+  }
+
+  if (path === '/api/staff/login' && method === 'POST') {
+    const user = db.users.find((item) => item.username === body.username && item.password === body.password);
+    if (!user) throw new Error('帳號或密碼錯誤');
+    db.session.user = { id: user.id, username: user.username, role: user.role, displayName: user.displayName };
+    setDemoDb(db);
+    return { user: db.session.user };
+  }
+
+  if (path === '/api/cases') return { cases: db.cases };
+
+  const approveMatch = path.match(/^\/api\/cases\/([^/]+)\/approve$/);
+  if (approveMatch && method === 'POST') {
+    const caseItem = db.cases.find((item) => item.id === approveMatch[1]);
+    if (!caseItem) throw new Error('找不到案件');
+    caseItem.status = 'open';
+    caseItem.approvedAt = new Date().toISOString();
+    db.messages.push({ id: demoId(), caseId: caseItem.id, senderType: 'system', senderName: '系統', body: '管理員已開通線上客服服務。', createdAt: new Date().toISOString() });
+    setDemoDb(db);
+    return { case: caseItem };
+  }
+
+  const messagesMatch = path.match(/^\/api\/cases\/([^/]+)\/messages$/);
+  if (messagesMatch) return { messages: db.messages.filter((message) => message.caseId === messagesMatch[1]) };
+
+  const filesMatch = path.match(/^\/api\/cases\/([^/]+)\/files$/);
+  if (filesMatch && method === 'POST') {
+    const file = body.get('video');
+    const saved = { id: demoId(), uploadedBy: db.session.user?.displayName || '民眾', originalName: file?.name || 'demo-video.webm', storedName: '', mimeType: file?.type || 'video/webm', size: file?.size || 0, kind: body.get('kind') || 'upload', createdAt: new Date().toISOString(), url: '#' };
+    db.files.push({ ...saved, caseId: filesMatch[1] });
+    setDemoDb(db);
+    return { file: saved };
+  }
+  if (filesMatch) return { files: db.files.filter((file) => file.caseId === filesMatch[1]) };
+
+  if (path === '/api/users') {
+    if (method === 'POST') {
+      if (db.users.some((user) => user.username === body.username)) throw new Error('帳號已存在');
+      db.users.push({ id: demoId(), username: body.username, password: body.password, role: body.role, displayName: body.displayName, createdAt: new Date().toISOString() });
+      setDemoDb(db);
+      return { ok: true };
+    }
+    return { users: db.users.map(({ password, ...user }) => user) };
+  }
+
+  return { ok: true };
 }
 
 function showNotice(text, type = 'info') {
@@ -399,6 +530,9 @@ socket.on('call:peer-left', () => {
 });
 
 (async function boot() {
+  if (window.location.pathname === '/admin' || window.location.pathname === '/admin/') {
+    window.history.replaceState(null, '', '/admin#admin');
+  }
   const initialPanel = {
     '#citizen': 'citizenPanel',
     '#staff': 'staffPanel',
