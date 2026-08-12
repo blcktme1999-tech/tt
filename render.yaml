@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: cib-online-report-service
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: STORAGE_DIR
+        value: /var/data
+      - key: SESSION_SECRET
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+    disk:
+      name: service-storage
+      mountPath: /var/data
+      sizeGB: 1

@@ -1,6 +1,7 @@
 node_modules/
 data/
 uploads/
+.tmp-runtime/
 .env
 *.log
 *.tmp

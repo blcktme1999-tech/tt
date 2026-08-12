@@ -3,5 +3,11 @@
   "installCommand": "echo Skipping install for static deployment",
   "buildCommand": "echo No build step required",
   "outputDirectory": ".",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/service/:path*",
+      "destination": "/public/:path*"
+    }
+  ]
 }

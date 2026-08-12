@@ -33,6 +33,8 @@ function showNotice(text, type = 'info') {
 function activatePanel(panelId) {
   $$('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === panelId));
   $$('.tab-button').forEach((button) => button.classList.toggle('active', button.dataset.panel === panelId));
+  const hashMap = { citizenPanel: 'citizen', staffPanel: 'staff', adminPanel: 'admin' };
+  if (hashMap[panelId]) window.history.replaceState(null, '', `#${hashMap[panelId]}`);
 }
 
 function formatTime(value) {
@@ -397,6 +399,12 @@ socket.on('call:peer-left', () => {
 });
 
 (async function boot() {
+  const initialPanel = {
+    '#citizen': 'citizenPanel',
+    '#staff': 'staffPanel',
+    '#admin': 'adminPanel'
+  }[window.location.hash];
+  if (initialPanel) activatePanel(initialPanel);
   state.me = await api('/api/me');
   if (state.me.user) {
     $('#staffLogin').classList.add('hidden');

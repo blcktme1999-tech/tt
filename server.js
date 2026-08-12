@@ -15,8 +15,9 @@ const io = new Server(server, { maxHttpBufferSize: 50 * 1024 * 1024 });
 
 const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
-const UPLOAD_DIR = path.join(ROOT, 'uploads');
+const STORAGE_DIR = process.env.STORAGE_DIR || ROOT;
+const DATA_DIR = process.env.DATA_DIR || path.join(STORAGE_DIR, 'data');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(STORAGE_DIR, 'uploads');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -73,12 +74,13 @@ db.exec(`
 const now = () => new Date().toISOString();
 const id = () => crypto.randomUUID();
 
+const defaultAdminPassword = process.env.ADMIN_PASSWORD || 'admin123';
 const defaultAdmin = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
 if (!defaultAdmin) {
   db.prepare(`
     INSERT INTO users (id, username, password_hash, role, display_name, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id(), 'admin', bcrypt.hashSync('admin123', 10), 'admin', '系統管理員', now());
+  `).run(id(), 'admin', bcrypt.hashSync(defaultAdminPassword, 10), 'admin', '系統管理員', now());
 }
 
 const sessionMiddleware = session({
@@ -91,7 +93,15 @@ const sessionMiddleware = session({
 app.use(express.json({ limit: '2mb' }));
 app.use(sessionMiddleware);
 app.use('/uploads', express.static(UPLOAD_DIR));
-app.use(express.static(PUBLIC_DIR));
+app.use('/service', express.static(PUBLIC_DIR));
+
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(ROOT, 'index.html'));
+});
+
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true });
+});
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
@@ -361,6 +371,7 @@ app.use((error, _req, res, _next) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Online report service running at http://localhost:${PORT}`);
-  console.log('Default admin: admin / admin123');
+  console.log(`Public site running at http://localhost:${PORT}`);
+  console.log(`Online report service running at http://localhost:${PORT}/service/`);
+  console.log('Default admin: admin / ADMIN_PASSWORD or admin123');
 });
