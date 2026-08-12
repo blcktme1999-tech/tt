@@ -1,0 +1,7 @@
+{
+  "framework": null,
+  "installCommand": "echo Skipping install for static deployment",
+  "buildCommand": "echo No build step required",
+  "outputDirectory": ".",
+  "cleanUrls": true
+}
