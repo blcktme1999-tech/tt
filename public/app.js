@@ -350,10 +350,50 @@ function appendFile(list, file) {
 
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('此瀏覽器或網址不支援鏡頭 API，請使用 HTTPS 或 localhost 測試。');
-  state.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  state.localStream = await getCameraStream();
   const localVideo = $('#localVideo');
   if (localVideo) localVideo.srcObject = state.localStream;
   await localVideo.play().catch(() => {});
+}
+
+async function getCameraStream() {
+  try {
+    return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch (error) {
+    if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      } catch (videoOnlyError) {
+        if (demoMode) return createDemoVideoStream();
+        throw new Error('找不到可用的攝影機。請確認裝置已接上，或改用上傳影片檔。');
+      }
+    }
+    if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') throw new Error('瀏覽器未允許使用攝影機或麥克風，請到網址列左側權限設定開啟。');
+    if (error.name === 'NotReadableError') throw new Error('攝影機目前被其他程式占用，請關閉其他視訊軟體後再試。');
+    throw error;
+  }
+}
+
+function createDemoVideoStream() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 960;
+  canvas.height = 540;
+  const context = canvas.getContext('2d');
+  let frame = 0;
+  const draw = () => {
+    frame += 1;
+    const hue = (frame * 2) % 360;
+    context.fillStyle = `hsl(${hue} 55% 28%)`;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    context.font = '42px sans-serif';
+    context.fillText('視訊筆錄測試畫面', 280, 250);
+    context.font = '24px sans-serif';
+    context.fillText(new Date().toLocaleString('zh-TW'), 350, 300);
+    requestAnimationFrame(draw);
+  };
+  draw();
+  return canvas.captureStream(24);
 }
 
 async function startRecording() {
