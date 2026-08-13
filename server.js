@@ -16,13 +16,28 @@ const io = new Server(server, { maxHttpBufferSize: 50 * 1024 * 1024 });
 
 const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
-const STORAGE_DIR = process.env.STORAGE_DIR || ROOT;
-const DATA_DIR = process.env.DATA_DIR || path.join(STORAGE_DIR, 'data');
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(STORAGE_DIR, 'uploads');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const AGORA_APP_ID = process.env.AGORA_APP_ID || '';
 const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || '';
 const AGORA_TOKEN_TTL_SECONDS = Number(process.env.AGORA_TOKEN_TTL_SECONDS || 60 * 60);
+
+function resolveStorageDir() {
+  const preferredDir = process.env.STORAGE_DIR || ROOT;
+  try {
+    fs.mkdirSync(preferredDir, { recursive: true });
+    fs.accessSync(preferredDir, fs.constants.W_OK);
+    return preferredDir;
+  } catch (error) {
+    const fallbackDir = path.join(process.env.TMPDIR || '/tmp', 'cib-online-report-service');
+    console.warn(`Storage directory ${preferredDir} is not writable, using ${fallbackDir} instead.`);
+    fs.mkdirSync(fallbackDir, { recursive: true });
+    return fallbackDir;
+  }
+}
+
+const STORAGE_DIR = resolveStorageDir();
+const DATA_DIR = process.env.DATA_DIR || path.join(STORAGE_DIR, 'data');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(STORAGE_DIR, 'uploads');
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });

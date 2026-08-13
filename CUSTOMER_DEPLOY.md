@@ -68,6 +68,7 @@ admin
 ## 注意事項
 
 - Render 免費方案可能會休眠，第一次開啟會比較慢。
-- 影片檔存在 Render disk，免費空間有限。
+- 影片檔與 SQLite 資料建議存在 Render Disk。若沒有設定 Disk，系統會自動改用 `/tmp/cib-online-report-service` 讓服務先啟動，但資料可能在重新部署或休眠後消失。
+- 如果部署出現 `EACCES: permission denied, mkdir '/var/data/data'`，代表 Web Service 沒有掛載 Render Disk；可新增 Disk，或先移除 `STORAGE_DIR=/var/data` 使用暫存模式。
 - Agora 正式視訊由 Render 後端產生 token；民眾輸入的身分證/居留證號會作為 Agora 頻道名稱，管理員審核開通後才能加入視訊筆錄。
 - 正式營運建議改 PostgreSQL 與 S3/R2 物件儲存。
