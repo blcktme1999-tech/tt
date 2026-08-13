@@ -233,6 +233,28 @@ function reportActionError(error) {
   window.alert(error.message || '操作失敗，請稍後再試。');
 }
 
+async function resetStaffSession() {
+  try {
+    await api('/api/staff/logout', { method: 'POST' });
+  } catch (_error) {
+  }
+  localStorage.removeItem('cib-demo-db');
+  window.location.href = '/admin#admin';
+}
+
+function renderAdminLoadError(error) {
+  const root = $('#adminWorkspace');
+  root.classList.remove('hidden');
+  root.innerHTML = `
+    <div class="surface compact">
+      <h2>後台資料載入失敗</h2>
+      <p class="muted">${escapeHtml(error.message || '請重新登入後再試。')}</p>
+      <button data-action="resetStaffSession" class="danger">重新登入</button>
+    </div>
+  `;
+  $('[data-action="resetStaffSession"]', root).addEventListener('click', resetStaffSession);
+}
+
 function activatePanel(panelId) {
   $$('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === panelId));
   $$('.tab-button').forEach((button) => button.classList.toggle('active', button.dataset.panel === panelId));
@@ -727,7 +749,7 @@ $('#staffLoginForm').addEventListener('submit', async (event) => {
       $('#adminWorkspace').classList.remove('hidden');
       activatePanel('adminPanel');
     }
-    await loadCases();
+    await loadCases().catch(renderAdminLoadError);
   } catch (error) {
     window.alert(error.message || '登入失敗，請確認帳號密碼。');
   }
@@ -804,7 +826,7 @@ socket.on('call:peer-left', () => {
       $('#adminWorkspace').classList.remove('hidden');
       activatePanel('adminPanel');
     }
-    await loadCases();
+    await loadCases().catch(renderAdminLoadError);
   } else if (window.location.hash === '#admin' || window.location.hash === '#staff') {
     activatePanel('staffPanel');
     if (isAdminPage) window.history.replaceState(null, '', '/admin#admin');
