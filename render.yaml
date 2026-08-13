@@ -15,6 +15,12 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      - key: AGORA_APP_ID
+        sync: false
+      - key: AGORA_APP_CERTIFICATE
+        sync: false
+      - key: AGORA_TOKEN_TTL_SECONDS
+        value: 3600
     disk:
       name: service-storage
       mountPath: /var/data

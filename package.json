@@ -9,6 +9,7 @@
     "check": "node --check server.js && node --check public/app.js"
   },
   "dependencies": {
+    "agora-token": "^2.0.5",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.2.1",
     "express": "^4.19.2",

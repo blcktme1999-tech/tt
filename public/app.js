@@ -9,7 +9,9 @@ const state = {
   chunks: [],
   localStream: null,
   peer: null,
-  joinedCall: false
+  joinedCall: false,
+  agoraClient: null,
+  agoraTracks: []
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -80,7 +82,7 @@ function getDemoDb() {
       { id: 'admin', username: 'admin', password: 'admin123', role: 'admin', displayName: '系統管理員', createdAt: new Date().toISOString() }
     ],
     cases: [
-      { id: 'demo-case-1', citizenName: '測試民眾', status: 'pending', createdAt: new Date().toISOString(), approvedAt: null }
+      { id: 'demo-case-1', citizenName: '測試民眾', agoraChannel: 'A123456789', status: 'pending', createdAt: new Date().toISOString(), approvedAt: null }
     ],
     messages: [
       { id: 'demo-message-1', caseId: 'demo-case-1', senderType: 'system', senderName: '系統', body: '這是 Vercel 靜態測試模式，可測登入、開帳號與審核流程。', createdAt: new Date().toISOString() }
@@ -103,9 +105,9 @@ async function demoApi(path, options = {}) {
   if (path === '/api/me') return { user: db.session.user || null, case: db.session.case || null };
 
   if (path === '/api/citizen/start' && method === 'POST') {
-    let caseItem = db.cases.find((item) => item.citizenName === body.citizenName);
+    let caseItem = db.cases.find((item) => item.citizenName === body.citizenName && item.agoraChannel === body.nationalId);
     if (!caseItem) {
-      caseItem = { id: demoId(), citizenName: body.citizenName, status: 'pending', createdAt: new Date().toISOString(), approvedAt: null };
+      caseItem = { id: demoId(), citizenName: body.citizenName, agoraChannel: body.nationalId, status: 'pending', createdAt: new Date().toISOString(), approvedAt: null };
       db.cases.push(caseItem);
       db.messages.push({ id: demoId(), caseId: caseItem.id, senderType: 'system', senderName: '系統', body: '民眾已送出線上客服開通申請，等待管理員審核。', createdAt: new Date().toISOString() });
     }
@@ -243,6 +245,7 @@ async function renderCaseDetail(root, caseItem, isAdmin) {
     </div>
     <div class="summary-grid">
       <div class="summary-box">案件編號<strong>${caseItem.id.slice(0, 8)}</strong></div>
+      <div class="summary-box">Agora 房間<strong>${escapeHtml(caseItem.agoraChannel || caseItem.id.slice(0, 8))}</strong></div>
       <div class="summary-box">狀態<strong class="status ${caseItem.status}">${caseStatus(caseItem.status)}</strong></div>
       <div class="summary-box">建立時間<strong>${formatTime(caseItem.createdAt)}</strong></div>
     </div>
@@ -297,8 +300,8 @@ async function renderMedia(root, caseItem) {
     <div class="media-grid">
       <div class="media-controls">
         <div class="video-pair">
-          <video id="localVideo" muted playsinline></video>
-          <video id="remoteVideo" playsinline></video>
+          <div id="localVideoSlot" class="video-slot"><video id="localVideo" muted playsinline></video></div>
+          <div id="remoteVideoSlot" class="video-slot"><video id="remoteVideo" playsinline></video></div>
         </div>
         <div class="button-row">
           <button data-action="startCamera">開啟鏡頭</button>
@@ -419,9 +422,9 @@ function stopRecording(caseId) {
 }
 
 async function joinCall(caseId) {
-  if (!state.localStream) await startCamera();
   state.joinedCall = true;
   if (demoMode) {
+    if (!state.localStream) await startCamera();
     const remoteVideo = $('#remoteVideo');
     if (remoteVideo) {
       remoteVideo.srcObject = state.localStream;
@@ -430,9 +433,58 @@ async function joinCall(caseId) {
     socket.emit('call:join', caseId);
     return;
   }
-  state.peer = createPeer(caseId);
-  state.localStream.getTracks().forEach((track) => state.peer.addTrack(track, state.localStream));
+
+  if (!window.AgoraRTC) throw new Error('Agora SDK 尚未載入，請重新整理後再試。');
+  await leaveCall(caseId);
+  const session = await api(`/api/cases/${caseId}/agora-token`, { method: 'POST' });
+  const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+  state.agoraClient = client;
+
+  client.on('user-published', async (user, mediaType) => {
+    await client.subscribe(user, mediaType);
+    if (mediaType === 'video') user.videoTrack.play('remoteVideoSlot');
+    if (mediaType === 'audio') user.audioTrack.play();
+  });
+  client.on('user-unpublished', (_user, mediaType) => {
+    if (mediaType === 'video') $('#remoteVideoSlot').innerHTML = '<video id="remoteVideo" playsinline></video>';
+  });
+
+  await client.join(session.appId, session.channelName, session.token, session.uid);
+  const tracks = await createAgoraTracks();
+  state.agoraTracks = tracks;
+  $('#localVideoSlot').innerHTML = '';
+  $('#remoteVideoSlot').innerHTML = '';
+  tracks.find((track) => track.trackMediaType === 'video')?.play('localVideoSlot');
+  await client.publish(tracks);
+  state.joinedCall = true;
   socket.emit('call:join', caseId);
+}
+
+async function createAgoraTracks() {
+  try {
+    const tracks = await AgoraRTC.createMicrophoneAndCameraTracks();
+    return tracks;
+  } catch (error) {
+    if (error.code === 'DEVICE_NOT_FOUND' || error.name === 'NotFoundError') {
+      const videoTrack = await AgoraRTC.createCameraVideoTrack();
+      return [videoTrack];
+    }
+    throw error;
+  }
+}
+
+async function leaveAgoraCall() {
+  state.agoraTracks.forEach((track) => {
+    track.stop();
+    track.close();
+  });
+  state.agoraTracks = [];
+  if (state.agoraClient) {
+    await state.agoraClient.leave();
+    state.agoraClient = null;
+  }
+  $('#localVideoSlot').innerHTML = '<video id="localVideo" muted playsinline></video>';
+  $('#remoteVideoSlot').innerHTML = '<video id="remoteVideo" playsinline></video>';
 }
 
 function createPeer(caseId) {
@@ -450,7 +502,8 @@ function createPeer(caseId) {
   return peer;
 }
 
-function leaveCall(caseId) {
+async function leaveCall(caseId) {
+  if (state.agoraClient || state.agoraTracks.length) await leaveAgoraCall();
   state.peer?.close();
   state.peer = null;
   state.joinedCall = false;

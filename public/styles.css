@@ -190,7 +190,8 @@ h3 { margin-bottom: .45rem; }
 .media-controls { display: grid; gap: .75rem; }
 .button-row { display: flex; flex-wrap: wrap; gap: .55rem; }
 .video-pair { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-video { width: 100%; background: #111827; border-radius: 8px; aspect-ratio: 16 / 10; object-fit: cover; }
+.video-slot, video { width: 100%; background: #111827; border-radius: 8px; aspect-ratio: 16 / 10; object-fit: cover; overflow: hidden; }
+.video-slot video { height: 100%; }
 .file-list { display: grid; gap: .65rem; max-height: 320px; overflow: auto; }
 .file-item { border: 1px solid var(--line); border-radius: 6px; padding: .75rem; background: #fff; }
 .file-item a { color: var(--brand); font-weight: 700; }

@@ -8,6 +8,7 @@ const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const Database = require('better-sqlite3');
 const { Server } = require('socket.io');
+const { RtcRole, RtcTokenBuilder } = require('agora-token');
 
 const app = express();
 const server = http.createServer(app);
@@ -19,6 +20,9 @@ const STORAGE_DIR = process.env.STORAGE_DIR || ROOT;
 const DATA_DIR = process.env.DATA_DIR || path.join(STORAGE_DIR, 'data');
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(STORAGE_DIR, 'uploads');
 const PUBLIC_DIR = path.join(ROOT, 'public');
+const AGORA_APP_ID = process.env.AGORA_APP_ID || '';
+const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || '';
+const AGORA_TOKEN_TTL_SECONDS = Number(process.env.AGORA_TOKEN_TTL_SECONDS || 60 * 60);
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -135,6 +139,7 @@ function publicCase(row) {
   return {
     id: row.id,
     citizenName: row.citizen_name,
+    agoraChannel: row.national_id,
     status: row.status,
     assignedUserId: row.assigned_user_id,
     createdAt: row.created_at,
@@ -295,6 +300,31 @@ app.post('/api/cases/:caseId/files', upload.single('video'), (req, res) => {
   const payload = { ...saved, url: `/uploads/${saved.storedName}` };
   io.to(`case:${caseRow.id}`).emit('file:created', payload);
   res.json({ file: payload });
+});
+
+app.post('/api/cases/:caseId/agora-token', (req, res) => {
+  if (!canAccessCase(req, req.params.caseId)) return res.status(403).json({ error: '無權進入此視訊筆錄' });
+  if (!AGORA_APP_ID || !AGORA_APP_CERTIFICATE) return res.status(503).json({ error: '尚未設定 Agora 環境變數' });
+
+  const caseRow = db.prepare('SELECT * FROM cases WHERE id = ?').get(req.params.caseId);
+  if (!caseRow) return res.status(404).json({ error: '找不到案件' });
+  if (caseRow.status !== 'open') return res.status(400).json({ error: '案件尚未審核開通，無法進入視訊筆錄' });
+
+  const channelName = caseRow.national_id;
+  const account = req.session.user
+    ? `${req.session.user.role}-${req.session.user.id}`
+    : `citizen-${caseRow.national_id}`;
+  const token = RtcTokenBuilder.buildTokenWithUserAccount(
+    AGORA_APP_ID,
+    AGORA_APP_CERTIFICATE,
+    channelName,
+    account,
+    RtcRole.PUBLISHER,
+    AGORA_TOKEN_TTL_SECONDS,
+    AGORA_TOKEN_TTL_SECONDS
+  );
+
+  res.json({ appId: AGORA_APP_ID, channelName, uid: account, token, expiresIn: AGORA_TOKEN_TTL_SECONDS });
 });
 
 app.get('/api/users', requireAdmin, (req, res) => {

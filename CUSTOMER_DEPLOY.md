@@ -14,6 +14,9 @@ Vercel 目前只適合展示靜態網站；完整後台、聊天室、審核與�
 4. 設定環境變數：
    - `SESSION_SECRET`：輸入一組長隨機字串。
    - `ADMIN_PASSWORD`：設定管理員 `admin` 的初始密碼。
+   - `AGORA_APP_ID`：Agora 專案 App ID。
+   - `AGORA_APP_CERTIFICATE`：Agora 專案 App Certificate。這是機密，不要寫進 GitHub。
+   - `AGORA_TOKEN_TTL_SECONDS`：視訊 token 有效秒數，預設可用 `3600`。
 5. 部署完成後會取得公開網址，例如：
 
 ```text
@@ -43,7 +46,7 @@ public/service.html
 管理端：
 
 ```text
-https://你的後端網址/service/#admin
+https://你的後端網址/admin
 ```
 
 客服端：
@@ -66,4 +69,5 @@ admin
 
 - Render 免費方案可能會休眠，第一次開啟會比較慢。
 - 影片檔存在 Render disk，免費空間有限。
+- Agora 正式視訊由 Render 後端產生 token；民眾輸入的身分證/居留證號會作為 Agora 頻道名稱，管理員審核開通後才能加入視訊筆錄。
 - 正式營運建議改 PostgreSQL 與 S3/R2 物件儲存。
