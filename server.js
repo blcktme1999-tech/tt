@@ -93,7 +93,7 @@ db.exec(`
 const now = () => new Date().toISOString();
 const id = () => crypto.randomUUID();
 
-const defaultAdminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+const defaultAdminPassword = process.env.ADMIN_PASSWORD || 'admin';
 const defaultAdmin = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
 if (!defaultAdmin) {
   db.prepare(`
@@ -428,5 +428,5 @@ app.use((error, _req, res, _next) => {
 server.listen(PORT, () => {
   console.log(`Public site running at http://localhost:${PORT}`);
   console.log(`Online report service running at http://localhost:${PORT}/service/`);
-  console.log('Default admin: admin / ADMIN_PASSWORD or admin123');
+  console.log('Default admin: admin / ADMIN_PASSWORD or admin');
 });

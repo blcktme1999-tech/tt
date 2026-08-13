@@ -100,7 +100,7 @@ function getDemoDb() {
   const db = {
     session: {},
     users: [
-      { id: 'admin', username: 'admin', password: 'admin123', role: 'admin', displayName: '系統管理員', createdAt: new Date().toISOString() }
+      { id: 'admin', username: 'admin', password: 'admin', role: 'admin', displayName: '系統管理員', createdAt: new Date().toISOString() }
     ],
     cases: [
       { id: 'demo-case-1', citizenName: '測試民眾', agoraChannel: 'A123456789', status: 'pending', createdAt: new Date().toISOString(), approvedAt: null }
@@ -657,7 +657,7 @@ $('#staffLoginForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   try {
-    await api(queryPath('/api/staff-login', { username: form.username.value, password: form.password.value }));
+    await api(queryPath('/api/me', { action: 'staff-login', username: form.username.value, password: form.password.value }));
     state.me = await api('/api/me');
     $('#staffLogin').classList.add('hidden');
     $('#staffWorkspace').classList.remove('hidden');

@@ -84,7 +84,7 @@ https://你的後端網址/service/#staff
 admin
 ```
 
-密碼由 Render 的 `ADMIN_PASSWORD` 環境變數決定。正式給客戶使用時不要使用 `admin123`。
+密碼由 `ADMIN_PASSWORD` 環境變數決定；沒有設定時預設為 `admin`。正式給客戶使用時請改成較安全的密碼。
 
 ## 注意事項
 

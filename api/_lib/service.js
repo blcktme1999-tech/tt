@@ -31,7 +31,7 @@ async function getJsonBody(req) {
 function getConfig() {
   const config = {
     sessionSecret: process.env.SESSION_SECRET,
-    adminPassword: process.env.ADMIN_PASSWORD || 'admin123',
+    adminPassword: process.env.ADMIN_PASSWORD || 'admin',
     supabaseUrl: process.env.SUPABASE_URL,
     supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY,
     agoraAppId: process.env.AGORA_APP_ID,
@@ -149,12 +149,23 @@ function publicFile(row) {
 
 async function ensureDefaultAdmin(client) {
   const config = getConfig();
-  const existing = await client.from('service_users').select('id').eq('username', 'admin').maybeSingle();
+  const passwordHash = bcrypt.hashSync(config.adminPassword, 10);
+  const existing = await client.from('service_users').select('id, password_hash, role, display_name').eq('username', 'admin').maybeSingle();
   if (existing.error) throw existing.error;
-  if (existing.data) return;
+  if (existing.data) {
+    const passwordMatches = existing.data.password_hash && bcrypt.compareSync(config.adminPassword, existing.data.password_hash);
+    if (passwordMatches && existing.data.role === 'admin') return;
+    const updated = await client.from('service_users').update({
+      password_hash: passwordMatches ? existing.data.password_hash : passwordHash,
+      role: 'admin',
+      display_name: existing.data.display_name || '系統管理員'
+    }).eq('id', existing.data.id);
+    if (updated.error) throw updated.error;
+    return;
+  }
   const inserted = await client.from('service_users').insert({
     username: 'admin',
-    password_hash: bcrypt.hashSync(config.adminPassword, 10),
+    password_hash: passwordHash,
     role: 'admin',
     display_name: '系統管理員'
   });
