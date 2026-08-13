@@ -1,6 +1,6 @@
 const { VIDEO_BUCKET, dataUrlToBuffer, getJsonBody, getSupabase, json, methodNotAllowed, publicFile, requireCaseAccess, safeName } = require('../../_lib/service');
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
   try {
     const client = getSupabase();
@@ -42,4 +42,7 @@ module.exports = async function handler(req, res) {
   } catch (error) {
     json(res, 500, { error: error.message || '影片處理失敗' });
   }
-};
+}
+
+module.exports = handler;
+module.exports.config = { api: { bodyParser: false, responseLimit: false } };

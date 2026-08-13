@@ -1,6 +1,6 @@
 const { createSessionCookie, getJsonBody, getSupabase, json, methodNotAllowed, publicCase } = require('../_lib/service');
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   try {
     if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
     const client = getSupabase();
@@ -28,4 +28,7 @@ module.exports = async function handler(req, res) {
   } catch (error) {
     json(res, 500, { error: error.message || '申請開通失敗' });
   }
-};
+}
+
+module.exports = handler;
+module.exports.config = { api: { bodyParser: false } };

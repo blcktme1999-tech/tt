@@ -1,6 +1,6 @@
 const { bcrypt, ensureDefaultAdmin, getJsonBody, getSupabase, json, methodNotAllowed, publicUser, requireAdmin } = require('./_lib/service');
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
   try {
     const session = requireAdmin(req, res);
@@ -26,4 +26,7 @@ module.exports = async function handler(req, res) {
   } catch (error) {
     json(res, 500, { error: error.message || '帳號處理失敗' });
   }
-};
+}
+
+module.exports = handler;
+module.exports.config = { api: { bodyParser: false } };

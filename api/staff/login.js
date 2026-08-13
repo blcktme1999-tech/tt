@@ -1,6 +1,6 @@
 const { bcrypt, createSessionCookie, ensureDefaultAdmin, getJsonBody, getSupabase, json, methodNotAllowed, publicUser } = require('../_lib/service');
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
   try {
     const client = getSupabase();
@@ -17,4 +17,7 @@ module.exports = async function handler(req, res) {
   } catch (error) {
     json(res, 500, { error: error.message || '登入失敗' });
   }
-};
+}
+
+module.exports = handler;
+module.exports.config = { api: { bodyParser: false } };
