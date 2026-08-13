@@ -625,7 +625,14 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
 }
 
-$$('.tab-button').forEach((button) => button.addEventListener('click', () => activatePanel(button.dataset.panel)));
+$$('.tab-button').forEach((button) => button.addEventListener('click', () => {
+  if (button.dataset.panel === 'adminPanel' && !state.me?.user) {
+    activatePanel('staffPanel');
+    if (window.location.pathname === '/admin' || window.location.pathname === '/admin/') window.history.replaceState(null, '', '/admin#admin');
+    return;
+  }
+  activatePanel(button.dataset.panel);
+}));
 
 $('#citizenForm').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -656,7 +663,7 @@ $('#staffLoginForm').addEventListener('submit', async (event) => {
     $('#staffWorkspace').classList.remove('hidden');
     if (state.me.user.role === 'admin') {
       $('#adminWorkspace').classList.remove('hidden');
-      if (window.location.hash === '#admin') activatePanel('adminPanel');
+      if (window.location.pathname === '/admin' || window.location.pathname === '/admin/' || window.location.hash === '#admin') activatePanel('adminPanel');
     }
     await loadCases();
   } catch (error) {
@@ -705,7 +712,8 @@ socket.on('call:peer-left', () => {
 });
 
 (async function boot() {
-  if (window.location.pathname === '/admin' || window.location.pathname === '/admin/') {
+  const isAdminPage = window.location.pathname === '/admin' || window.location.pathname === '/admin/';
+  if (isAdminPage) {
     window.history.replaceState(null, '', '/admin#admin');
   }
   const initialPanel = {
@@ -714,14 +722,22 @@ socket.on('call:peer-left', () => {
     '#admin': 'adminPanel'
   }[window.location.hash];
   if (initialPanel) activatePanel(initialPanel);
-  state.me = await api('/api/me');
+  if (isAdminPage || window.location.hash === '#admin' || window.location.hash === '#staff') {
+    activatePanel('staffPanel');
+    if (isAdminPage) window.history.replaceState(null, '', '/admin#admin');
+  }
+  state.me = await api('/api/me').catch(() => ({ user: null, case: null }));
   if (state.me.user) {
     $('#staffLogin').classList.add('hidden');
     $('#staffWorkspace').classList.remove('hidden');
-    if (state.me.user.role === 'admin') $('#adminWorkspace').classList.remove('hidden');
+    if (state.me.user.role === 'admin') {
+      $('#adminWorkspace').classList.remove('hidden');
+      if (isAdminPage || window.location.hash === '#admin') activatePanel('adminPanel');
+    }
     await loadCases();
   } else if (window.location.hash === '#admin' || window.location.hash === '#staff') {
     activatePanel('staffPanel');
+    if (isAdminPage) window.history.replaceState(null, '', '/admin#admin');
   }
   if (state.me.case) renderCitizenWorkspace(state.me.case);
 })();
