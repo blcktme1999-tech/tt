@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>線上報案客服系統</title>
+  <link rel="stylesheet" href="/public/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">便民服務</p>
+      <h1>線上報案客服系統</h1>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section id="citizenPanel" class="panel active">
+      <div class="surface intro-surface">
+        <div>
+          <p class="eyebrow">姓名 + 身分證/居留證號</p>
+          <h2>申請開通後即可保留完整客服紀錄</h2>
+          <p class="muted">初次送出會進入待審核。管理員開通後，民眾用同一組資料即可進入聊天室、上傳影片或啟動視訊筆錄。</p>
+        </div>
+        <form id="citizenForm" class="stacked-form">
+          <label>姓名<input name="citizenName" autocomplete="name" required></label>
+          <label>身分證/居留證號<input name="nationalId" autocomplete="off" required></label>
+          <button type="submit">進入線上客服</button>
+        </form>
+      </div>
+      <div id="citizenStatus" class="notice hidden"></div>
+      <div id="citizenWorkspace" class="workspace hidden"></div>
+    </section>
+
+    <section id="staffPanel" class="panel">
+      <div id="staffLogin" class="surface compact">
+        <h2>客服登入</h2>
+        <form id="staffLoginForm" class="stacked-form">
+          <label>帳號<input name="username" autocomplete="username" required></label>
+          <label>密碼<input name="password" type="password" autocomplete="current-password" required></label>
+          <button type="submit">登入客服端</button>
+        </form>
+        <p class="muted">預設管理員：admin / admin123</p>
+      </div>
+      <div id="staffWorkspace" class="workspace hidden"></div>
+    </section>
+
+    <section id="adminPanel" class="panel">
+      <div class="surface compact">
+        <h2>管理端</h2>
+        <p class="muted">管理員可審核民眾服務、建立客服帳號，並檢視所有案件紀錄。</p>
+      </div>
+      <div id="adminWorkspace" class="workspace hidden"></div>
+    </section>
+  </main>
+
+  <template id="caseWorkspaceTemplate">
+    <div class="case-shell">
+      <aside class="case-list-card">
+        <div class="section-heading">
+          <h2>案件列表</h2>
+          <button data-action="refreshCases">重新整理</button>
+        </div>
+        <div data-slot="caseList" class="case-list"></div>
+      </aside>
+      <section class="case-detail">
+        <div data-slot="caseSummary" class="surface empty-state">請選擇案件</div>
+        <div data-slot="conversation" class="surface hidden"></div>
+        <div data-slot="media" class="surface hidden"></div>
+      </section>
+    </div>
+  </template>
+
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/public/app.js"></script>
+</body>
+</html>

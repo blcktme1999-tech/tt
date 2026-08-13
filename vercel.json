@@ -15,11 +15,11 @@
     },
     {
       "source": "/service",
-      "destination": "/public/service.html"
+      "destination": "/service.html"
     },
     {
       "source": "/service/",
-      "destination": "/public/service.html"
+      "destination": "/service.html"
     },
     {
       "source": "/service/:path*",
