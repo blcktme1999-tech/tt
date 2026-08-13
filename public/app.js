@@ -6,8 +6,11 @@ const state = {
   currentCase: null,
   cases: [],
   recorder: null,
+  recorderCaseId: null,
   chunks: [],
   localStream: null,
+  remoteRecordStream: null,
+  autoRecordCaseId: null,
   peer: null,
   joinedCall: false,
   agoraClient: null,
@@ -249,8 +252,8 @@ async function demoApi(path, options = {}) {
 
   const filesMatch = route.match(/^\/api\/cases\/([^/]+)\/files$/);
   if (filesMatch && method === 'POST') {
-    const file = body.get('video');
-    const saved = { id: demoId(), uploadedBy: db.session.user?.displayName || '民眾', originalName: file?.name || 'demo-video.webm', storedName: '', mimeType: file?.type || 'video/webm', size: file?.size || 0, kind: body.get('kind') || 'upload', createdAt: new Date().toISOString(), url: file ? URL.createObjectURL(file) : '#' };
+    const file = body.get('file') || body.get('video');
+    const saved = { id: demoId(), uploadedBy: db.session.user?.displayName || '民眾', originalName: file?.name || 'demo-file', storedName: '', mimeType: file?.type || 'application/octet-stream', size: file?.size || 0, kind: body.get('kind') || 'upload', createdAt: new Date().toISOString(), url: file ? URL.createObjectURL(file) : '#' };
     db.files.push({ ...saved, caseId: filesMatch[1] });
     setDemoDb(db);
     socket.dispatch?.('file:created', saved);
@@ -426,8 +429,8 @@ function appendMessage(log, message) {
 async function renderMedia(root, caseItem, isAdmin) {
   const { files } = await api(`/api/cases/${caseItem.id}/files`);
   const callButtons = isAdmin
-    ? '<button data-action="joinCall" class="warning">加入視訊筆錄</button><button data-action="leaveCall" class="danger">離開視訊</button>'
-    : '<button data-action="joinCall" class="warning">製作筆錄</button><button data-action="startRecord" class="secondary">開始錄製</button><button data-action="stopRecord" class="secondary">停止並上傳</button><button data-action="leaveCall" class="danger">結束筆錄</button>';
+    ? '<button data-action="joinCall" class="warning">加入視訊筆錄</button><button data-action="leaveCall" class="danger">結束筆錄</button>'
+    : '<button data-action="joinCall" class="warning">製作筆錄</button><button data-action="leaveCall" class="danger">結束筆錄</button>';
   root.innerHTML = `
     <div class="section-heading"><h2>視訊筆錄與影片</h2></div>
     <div class="media-grid">
@@ -440,8 +443,8 @@ async function renderMedia(root, caseItem, isAdmin) {
           ${callButtons}
         </div>
         <form class="upload-form stacked-form">
-          <label>上傳影片檔<input name="video" type="file" accept="video/*" required></label>
-          <button type="submit">上傳影片給客服端</button>
+          <label>上傳資料<input name="file" type="file" required></label>
+          <button type="submit">上傳資料</button>
         </form>
       </div>
       <div>
@@ -451,16 +454,12 @@ async function renderMedia(root, caseItem, isAdmin) {
     </div>
   `;
   files.forEach((file) => appendFile($('.file-list', root), file));
-  const recordButton = $('[data-action="startRecord"]', root);
-  if (recordButton) recordButton.addEventListener('click', () => startRecording().catch(reportActionError));
-  const stopRecordButton = $('[data-action="stopRecord"]', root);
-  if (stopRecordButton) stopRecordButton.addEventListener('click', () => stopRecording(caseItem.id));
-  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id, !isAdmin).catch(reportActionError));
-  $('[data-action="leaveCall"]', root).addEventListener('click', () => leaveCall(caseItem.id, !isAdmin));
+  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id, !isAdmin, isAdmin).catch(reportActionError));
+  $('[data-action="leaveCall"]', root).addEventListener('click', () => leaveCall(caseItem.id, !isAdmin, isAdmin));
   $('.upload-form', root).addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
-      const file = event.currentTarget.video.files[0];
+      const file = event.currentTarget.file.files[0];
       await uploadVideo(caseItem.id, file, file.name, 'upload');
       event.currentTarget.reset();
     } catch (error) {
@@ -474,7 +473,7 @@ function appendFile(list, file) {
   item.className = 'file-item';
   item.innerHTML = `
     <a href="${file.url}" target="_blank" rel="noreferrer">${escapeHtml(file.originalName)}</a>
-    <div class="muted">${file.kind === 'recording' ? '錄製影片' : '上傳影片'} · ${escapeHtml(file.uploadedBy)} · ${formatTime(file.createdAt)}</div>
+    <div class="muted">${file.kind === 'recording' ? '錄製筆錄' : '上傳資料'} · ${escapeHtml(file.uploadedBy)} · ${formatTime(file.createdAt)}</div>
   `;
   list.prepend(item);
 }
@@ -496,7 +495,7 @@ async function getCameraStream() {
         return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       } catch (videoOnlyError) {
         if (usingDemoData) return createDemoVideoStream();
-        throw new Error('找不到可用的攝影機。請確認裝置已接上，或改用上傳影片檔。');
+        throw new Error('找不到可用的攝影機。請確認裝置已接上，或改用上傳資料。');
       }
     }
     if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') throw new Error('瀏覽器未允許使用攝影機或麥克風，請到網址列左側權限設定開啟。');
@@ -529,18 +528,44 @@ function createDemoVideoStream() {
 
 async function startRecording() {
   if (!state.localStream) await startCamera();
+  startRecordingFromStream(state.localStream);
+}
+
+function startRecordingFromStream(stream) {
   if (!window.MediaRecorder) throw new Error('此瀏覽器不支援 MediaRecorder 錄影 API。');
+  if (!stream) throw new Error('沒有可錄製的視訊來源。');
+  if (state.recorder && state.recorder.state !== 'inactive') return;
   state.chunks = [];
   const options = MediaRecorder.isTypeSupported('video/webm') ? { mimeType: 'video/webm' } : undefined;
-  state.recorder = new MediaRecorder(state.localStream, options);
+  state.recorder = new MediaRecorder(stream, options);
   state.recorder.ondataavailable = (event) => event.data.size && state.chunks.push(event.data);
   state.recorder.start();
+}
+
+function startRemoteElementRecording(caseId) {
+  if (state.recorder && state.recorder.state !== 'inactive') return;
+  const remoteVideo = $('#remoteVideoSlot video') || $('#remoteVideo');
+  const stream = remoteVideo?.captureStream?.() || remoteVideo?.mozCaptureStream?.();
+  if (!stream) throw new Error('此瀏覽器不支援自動錄製遠端視訊畫面。');
+  if (!stream.getVideoTracks().length) throw new Error('遠端視訊尚未出現，請稍後再試。');
+  state.remoteRecordStream = stream;
+  state.recorderCaseId = caseId;
+  startRecordingFromStream(stream);
+}
+
+function tryStartRemoteElementRecording(caseId) {
+  try {
+    startRemoteElementRecording(caseId);
+  } catch (error) {
+    if (!String(error.message || '').includes('遠端視訊尚未出現')) reportActionError(error);
+  }
 }
 
 function stopRecording(caseId) {
   if (!state.recorder || state.recorder.state === 'inactive') return;
   state.recorder.onstop = async () => {
     const blob = new Blob(state.chunks, { type: state.recorder.mimeType || 'video/webm' });
+    state.recorderCaseId = null;
     uploadVideo(caseId, blob, `video-statement-${Date.now()}.webm`, 'recording').catch(reportActionError);
   };
   state.recorder.stop();
@@ -550,7 +575,7 @@ function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error || new Error('讀取影片檔失敗'));
+    reader.onerror = () => reject(reader.error || new Error('讀取檔案失敗'));
     reader.readAsDataURL(file);
   });
 }
@@ -562,7 +587,7 @@ async function uploadVideo(caseId, file, fileName, kind) {
     body: JSON.stringify({
       dataUrl,
       fileName,
-      mimeType: file.type || 'video/webm',
+      mimeType: file.type || 'application/octet-stream',
       size: file.size || 0,
       kind
     })
@@ -576,8 +601,9 @@ async function updateStatementStatus(caseId, active) {
   state.currentCase = caseItem || state.currentCase;
 }
 
-async function joinCall(caseId, markStatement = false) {
+async function joinCall(caseId, markStatement = false, autoRecordRemote = false) {
   state.joinedCall = true;
+  state.autoRecordCaseId = autoRecordRemote ? caseId : null;
   if (usingDemoData) {
     if (!state.localStream) await startCamera();
     const remoteVideo = $('#remoteVideo');
@@ -586,6 +612,7 @@ async function joinCall(caseId, markStatement = false) {
       await remoteVideo.play().catch(() => {});
     }
     if (markStatement) await updateStatementStatus(caseId, true);
+    if (autoRecordRemote) tryStartRemoteElementRecording(caseId);
     socket.emit('call:join', caseId);
     return;
   }
@@ -598,7 +625,10 @@ async function joinCall(caseId, markStatement = false) {
 
   client.on('user-published', async (user, mediaType) => {
     await client.subscribe(user, mediaType);
-    if (mediaType === 'video') user.videoTrack.play('remoteVideoSlot');
+    if (mediaType === 'video') {
+      user.videoTrack.play('remoteVideoSlot');
+      if (state.autoRecordCaseId) setTimeout(() => tryStartRemoteElementRecording(state.autoRecordCaseId), 300);
+    }
     if (mediaType === 'audio') user.audioTrack.play();
   });
   client.on('user-unpublished', (_user, mediaType) => {
@@ -614,6 +644,7 @@ async function joinCall(caseId, markStatement = false) {
   await client.publish(tracks);
   state.joinedCall = true;
   if (markStatement) await updateStatementStatus(caseId, true);
+  if (autoRecordRemote) tryStartRemoteElementRecording(caseId);
   socket.emit('call:join', caseId);
 }
 
@@ -659,11 +690,15 @@ function createPeer(caseId) {
   return peer;
 }
 
-async function leaveCall(caseId, markStatement = false) {
+async function leaveCall(caseId, markStatement = false, stopRemoteRecording = false) {
+  if (stopRemoteRecording && state.recorder && state.recorder.state !== 'inactive') stopRecording(state.recorderCaseId || caseId);
   if (state.agoraClient || state.agoraTracks.length) await leaveAgoraCall();
   state.peer?.close();
   state.peer = null;
   state.joinedCall = false;
+  state.autoRecordCaseId = null;
+  state.remoteRecordStream?.getTracks().forEach((track) => track.stop());
+  state.remoteRecordStream = null;
   const remoteVideo = $('#remoteVideo');
   if (remoteVideo) remoteVideo.srcObject = null;
   if (markStatement) updateStatementStatus(caseId, false).catch(reportActionError);

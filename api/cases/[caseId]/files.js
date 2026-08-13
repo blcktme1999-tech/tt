@@ -16,10 +16,9 @@ async function handler(req, res) {
 
     const body = await getJsonBody(req);
     const parsed = dataUrlToBuffer(body.dataUrl);
-    if (!parsed) return json(res, 400, { error: '影片格式錯誤，請重新上傳' });
-    if (!parsed.mimeType.startsWith('video/')) return json(res, 400, { error: '只允許上傳影片檔' });
+    if (!parsed) return json(res, 400, { error: '檔案格式錯誤，請重新上傳' });
 
-    const originalName = safeName(body.fileName || 'video.webm');
+    const originalName = safeName(body.fileName || 'attachment');
     const storedName = `${req.query.caseId}/${Date.now()}-${originalName}`;
     const uploaded = await client.storage.from(VIDEO_BUCKET).upload(storedName, parsed.buffer, { contentType: parsed.mimeType, upsert: false });
     if (uploaded.error) throw uploaded.error;
@@ -40,7 +39,7 @@ async function handler(req, res) {
     if (inserted.error) throw inserted.error;
     json(res, 200, { file: publicFile(inserted.data) });
   } catch (error) {
-    json(res, 500, { error: error.message || '影片處理失敗' });
+    json(res, 500, { error: error.message || '檔案處理失敗' });
   }
 }
 
