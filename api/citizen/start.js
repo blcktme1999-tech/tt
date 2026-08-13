@@ -31,4 +31,3 @@ async function handler(req, res) {
 }
 
 module.exports = handler;
-module.exports.config = { api: { bodyParser: false } };
