@@ -641,15 +641,22 @@ $('#citizenForm').addEventListener('submit', async (event) => {
 $('#staffLoginForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
-  await api('/api/staff/login', {
-    method: 'POST',
-    body: JSON.stringify({ username: form.username.value, password: form.password.value })
-  });
-  state.me = await api('/api/me');
-  $('#staffLogin').classList.add('hidden');
-  $('#staffWorkspace').classList.remove('hidden');
-  if (state.me.user.role === 'admin') $('#adminWorkspace').classList.remove('hidden');
-  await loadCases();
+  try {
+    await api('/api/staff/login', {
+      method: 'POST',
+      body: JSON.stringify({ username: form.username.value, password: form.password.value })
+    });
+    state.me = await api('/api/me');
+    $('#staffLogin').classList.add('hidden');
+    $('#staffWorkspace').classList.remove('hidden');
+    if (state.me.user.role === 'admin') {
+      $('#adminWorkspace').classList.remove('hidden');
+      if (window.location.hash === '#admin') activatePanel('adminPanel');
+    }
+    await loadCases();
+  } catch (error) {
+    window.alert(error.message || '登入失敗，請確認帳號密碼。');
+  }
 });
 
 socket.on('message:created', (message) => {
@@ -708,6 +715,8 @@ socket.on('call:peer-left', () => {
     $('#staffWorkspace').classList.remove('hidden');
     if (state.me.user.role === 'admin') $('#adminWorkspace').classList.remove('hidden');
     await loadCases();
+  } else if (window.location.hash === '#admin' || window.location.hash === '#staff') {
+    activatePanel('staffPanel');
   }
   if (state.me.case) renderCitizenWorkspace(state.me.case);
 })();
