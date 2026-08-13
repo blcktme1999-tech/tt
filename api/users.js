@@ -1,4 +1,4 @@
-const { bcrypt, ensureDefaultAdmin, getJsonBody, getSupabase, json, methodNotAllowed, publicUser, requireAdmin } = require('./_lib/service');
+const { bcrypt, getJsonBody, getSupabase, json, methodNotAllowed, publicUser, requireAdmin } = require('./_lib/service');
 
 async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
@@ -6,7 +6,6 @@ async function handler(req, res) {
     const session = requireAdmin(req, res);
     if (!session) return;
     const client = getSupabase();
-    await ensureDefaultAdmin(client);
 
     if (req.method === 'GET') {
       const result = await client.from('service_users').select('id, username, role, display_name, created_at').order('created_at', { ascending: false });
