@@ -619,18 +619,23 @@ $$('.tab-button').forEach((button) => button.addEventListener('click', () => act
 $('#citizenForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
-  const data = await api('/api/citizen/start', {
-    method: 'POST',
-    body: JSON.stringify({ citizenName: form.citizenName.value, nationalId: form.nationalId.value })
-  });
-  if (data.status === 'pending') {
+  try {
+    const data = await api('/api/citizen/start', {
+      method: 'POST',
+      body: JSON.stringify({ citizenName: form.citizenName.value, nationalId: form.nationalId.value })
+    });
+    if (data.status === 'pending') {
+      $('#citizenWorkspace').classList.add('hidden');
+      showNotice('已送出開通申請，請等待管理員審核。審核完成後用同一組資料即可進入客服。');
+      return;
+    }
+    showNotice('已進入線上客服服務。');
+    state.me = await api('/api/me');
+    renderCitizenWorkspace(data.case);
+  } catch (error) {
     $('#citizenWorkspace').classList.add('hidden');
-    showNotice('已送出開通申請，請等待管理員審核。審核完成後用同一組資料即可進入客服。');
-    return;
+    showNotice(error.message || '申請失敗，請稍後再試。', 'error');
   }
-  showNotice('已進入線上客服服務。');
-  state.me = await api('/api/me');
-  renderCitizenWorkspace(data.case);
 });
 
 $('#staffLoginForm').addEventListener('submit', async (event) => {
