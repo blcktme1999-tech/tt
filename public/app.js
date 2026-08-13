@@ -712,7 +712,15 @@ socket.on('call:peer-left', () => {
 });
 
 (async function boot() {
+  const entryMode = document.body.dataset.entry || 'mixed';
   const isAdminPage = window.location.pathname === '/admin' || window.location.pathname === '/admin/';
+  if (entryMode === 'citizen') {
+    activatePanel('citizenPanel');
+    window.history.replaceState(null, '', window.location.pathname);
+    state.me = await api('/api/me').catch(() => ({ user: null, case: null }));
+    if (state.me.case) renderCitizenWorkspace(state.me.case);
+    return;
+  }
   if (isAdminPage) {
     window.history.replaceState(null, '', '/admin#admin');
   }
