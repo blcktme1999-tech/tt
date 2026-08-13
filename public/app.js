@@ -663,7 +663,7 @@ $('#staffLoginForm').addEventListener('submit', async (event) => {
     $('#staffWorkspace').classList.remove('hidden');
     if (state.me.user.role === 'admin') {
       $('#adminWorkspace').classList.remove('hidden');
-      if (window.location.pathname === '/admin' || window.location.pathname === '/admin/' || window.location.hash === '#admin') activatePanel('adminPanel');
+      activatePanel('adminPanel');
     }
     await loadCases();
   } catch (error) {
@@ -732,7 +732,7 @@ socket.on('call:peer-left', () => {
     $('#staffWorkspace').classList.remove('hidden');
     if (state.me.user.role === 'admin') {
       $('#adminWorkspace').classList.remove('hidden');
-      if (isAdminPage || window.location.hash === '#admin') activatePanel('adminPanel');
+      activatePanel('adminPanel');
     }
     await loadCases();
   } else if (window.location.hash === '#admin' || window.location.hash === '#staff') {
