@@ -2,9 +2,29 @@
 
 ## 建議部署方式
 
-這個系統含有 Node 後端、Socket.IO、SQLite、影片上傳與本機檔案保存，建議部署到 Render 或 Railway 這類可長駐的 Node 平台。
+目前正式建議使用 Vercel + Supabase：Vercel 提供網站與 `/api` serverless，Supabase 保存案件、訊息、帳號與影片，Agora token 也由 Vercel API 產生。
 
-Vercel 目前只適合展示靜態網站；完整後台、聊天室、審核與影片上傳不適合放在 Vercel serverless。
+Render 版本仍保留在 `server.js`，可作為長駐 Node 後端備用。
+
+## Vercel 快速部署
+
+1. 將 GitHub repo 匯入 Vercel。
+2. 設定 Environment Variables：
+   - `SESSION_SECRET`：輸入一組長隨機字串。
+   - `ADMIN_PASSWORD`：設定管理員 `admin` 的初始密碼。
+   - `SUPABASE_URL`：Supabase Project URL。
+   - `SUPABASE_SERVICE_ROLE_KEY`：Supabase secret/service role key。這是機密，不要寫進 GitHub。
+   - `SUPABASE_VIDEO_BUCKET`：預設 `report-videos`。
+   - `AGORA_APP_ID`：Agora 專案 App ID。
+   - `AGORA_APP_CERTIFICATE`：Agora 專案 App Certificate。這是機密，不要寫進 GitHub。
+   - `AGORA_TOKEN_TTL_SECONDS`：視訊 token 有效秒數，預設可用 `3600`。
+3. 部署後使用 Vercel 網址，例如：
+
+```text
+https://tt-theta-eight.vercel.app
+```
+
+## Render 備用部署
 
 ## Render 快速部署
 

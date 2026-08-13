@@ -10,11 +10,14 @@
   },
   "dependencies": {
     "agora-token": "^2.0.5",
+    "@supabase/supabase-js": "^2.56.0",
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^11.2.1",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
     "multer": "^2.0.2",
     "socket.io": "^4.7.5"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.2.1"
   }
 }

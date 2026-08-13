@@ -1,5 +1,5 @@
 const socket = window.io ? window.io() : createDemoSocket();
-const demoMode = !window.io;
+let usingDemoData = false;
 
 const state = {
   me: null,
@@ -18,20 +18,25 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 async function api(path, options = {}) {
+  let response;
   try {
-    const response = await fetch(path, {
+    response = await fetch(path, {
       headers: options.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
       ...options
     });
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) throw new Error('靜態測試模式');
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || '請稍後再試');
-    return data;
   } catch (error) {
-    if (demoMode) return demoApi(path, options);
-    throw error;
+    usingDemoData = true;
+    return demoApi(path, options);
   }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    usingDemoData = true;
+    return demoApi(path, options);
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || '請稍後再試');
+  return data;
 }
 
 function createDemoSocket() {
@@ -45,8 +50,19 @@ function createDemoSocket() {
       handlers[event].push(callback);
     },
     dispatch,
-    emit(event, payload) {
+    async emit(event, payload) {
       if (event === 'message:create') {
+        if (!usingDemoData) {
+          try {
+            const { message } = await api(`/api/cases/${payload.caseId}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ body: payload.body })
+            });
+            dispatch('message:created', message);
+            return;
+          } catch (_error) {
+          }
+        }
         const db = getDemoDb();
         const caseItem = db.cases.find((item) => item.id === payload.caseId);
         if (!caseItem || !String(payload.body || '').trim()) return;
@@ -330,10 +346,8 @@ async function renderMedia(root, caseItem) {
   $('.upload-form', root).addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
-      const formData = new FormData();
-      formData.append('video', event.currentTarget.video.files[0]);
-      formData.append('kind', 'upload');
-      await api(`/api/cases/${caseItem.id}/files`, { method: 'POST', body: formData });
+      const file = event.currentTarget.video.files[0];
+      await uploadVideo(caseItem.id, file, file.name, 'upload');
       event.currentTarget.reset();
     } catch (error) {
       reportActionError(error);
@@ -367,7 +381,7 @@ async function getCameraStream() {
       try {
         return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       } catch (videoOnlyError) {
-        if (demoMode) return createDemoVideoStream();
+        if (usingDemoData) return createDemoVideoStream();
         throw new Error('找不到可用的攝影機。請確認裝置已接上，或改用上傳影片檔。');
       }
     }
@@ -413,17 +427,39 @@ function stopRecording(caseId) {
   if (!state.recorder || state.recorder.state === 'inactive') return;
   state.recorder.onstop = async () => {
     const blob = new Blob(state.chunks, { type: state.recorder.mimeType || 'video/webm' });
-    const formData = new FormData();
-    formData.append('video', blob, `video-statement-${Date.now()}.webm`);
-    formData.append('kind', 'recording');
-    await api(`/api/cases/${caseId}/files`, { method: 'POST', body: formData }).catch(reportActionError);
+    uploadVideo(caseId, blob, `video-statement-${Date.now()}.webm`, 'recording').catch(reportActionError);
   };
   state.recorder.stop();
 }
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('讀取影片檔失敗'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadVideo(caseId, file, fileName, kind) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const { file: saved } = await api(`/api/cases/${caseId}/files`, {
+    method: 'POST',
+    body: JSON.stringify({
+      dataUrl,
+      fileName,
+      mimeType: file.type || 'video/webm',
+      size: file.size || 0,
+      kind
+    })
+  });
+  const list = $('.panel.active .file-list');
+  if (list && saved) appendFile(list, saved);
+}
+
 async function joinCall(caseId) {
   state.joinedCall = true;
-  if (demoMode) {
+  if (usingDemoData) {
     if (!state.localStream) await startCamera();
     const remoteVideo = $('#remoteVideo');
     if (remoteVideo) {
