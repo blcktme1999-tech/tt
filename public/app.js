@@ -121,14 +121,18 @@ function setDemoDb(db) {
 async function demoApi(path, options = {}) {
   const db = getDemoDb();
   const method = options.method || 'GET';
+  const url = new URL(path, window.location.origin);
+  const route = url.pathname;
   const body = options.body instanceof FormData ? options.body : JSON.parse(options.body || '{}');
 
-  if (path === '/api/me') return { user: db.session.user || null, case: db.session.case || null };
+  if (route === '/api/me') return { user: db.session.user || null, case: db.session.case || null };
 
-  if (path === '/api/citizen/start' && method === 'POST') {
-    let caseItem = db.cases.find((item) => item.citizenName === body.citizenName && item.agoraChannel === body.nationalId);
+  if ((route === '/api/citizen/start' || route === '/api/citizen-start') && (method === 'POST' || method === 'GET')) {
+    const citizenName = method === 'GET' ? url.searchParams.get('citizenName') : body.citizenName;
+    const nationalId = method === 'GET' ? url.searchParams.get('nationalId') : body.nationalId;
+    let caseItem = db.cases.find((item) => item.citizenName === citizenName && item.agoraChannel === nationalId);
     if (!caseItem) {
-      caseItem = { id: demoId(), citizenName: body.citizenName, agoraChannel: body.nationalId, status: 'pending', createdAt: new Date().toISOString(), approvedAt: null };
+      caseItem = { id: demoId(), citizenName, agoraChannel: nationalId, status: 'pending', createdAt: new Date().toISOString(), approvedAt: null };
       db.cases.push(caseItem);
       db.messages.push({ id: demoId(), caseId: caseItem.id, senderType: 'system', senderName: '系統', body: '民眾已送出線上客服開通申請，等待管理員審核。', createdAt: new Date().toISOString() });
     }
@@ -137,17 +141,19 @@ async function demoApi(path, options = {}) {
     return { status: caseItem.status === 'open' ? 'open' : 'pending', case: caseItem };
   }
 
-  if (path === '/api/staff/login' && method === 'POST') {
-    const user = db.users.find((item) => item.username === body.username && item.password === body.password);
+  if ((route === '/api/staff/login' || route === '/api/staff-login') && (method === 'POST' || method === 'GET')) {
+    const username = method === 'GET' ? url.searchParams.get('username') : body.username;
+    const password = method === 'GET' ? url.searchParams.get('password') : body.password;
+    const user = db.users.find((item) => item.username === username && item.password === password);
     if (!user) throw new Error('帳號或密碼錯誤');
     db.session.user = { id: user.id, username: user.username, role: user.role, displayName: user.displayName };
     setDemoDb(db);
     return { user: db.session.user };
   }
 
-  if (path === '/api/cases') return { cases: db.cases };
+  if (route === '/api/cases') return { cases: db.cases };
 
-  const approveMatch = path.match(/^\/api\/cases\/([^/]+)\/approve$/);
+  const approveMatch = route.match(/^\/api\/cases\/([^/]+)\/approve$/);
   if (approveMatch && method === 'POST') {
     const caseItem = db.cases.find((item) => item.id === approveMatch[1]);
     if (!caseItem) throw new Error('找不到案件');
@@ -158,10 +164,10 @@ async function demoApi(path, options = {}) {
     return { case: caseItem };
   }
 
-  const messagesMatch = path.match(/^\/api\/cases\/([^/]+)\/messages$/);
+  const messagesMatch = route.match(/^\/api\/cases\/([^/]+)\/messages$/);
   if (messagesMatch) return { messages: db.messages.filter((message) => message.caseId === messagesMatch[1]) };
 
-  const filesMatch = path.match(/^\/api\/cases\/([^/]+)\/files$/);
+  const filesMatch = route.match(/^\/api\/cases\/([^/]+)\/files$/);
   if (filesMatch && method === 'POST') {
     const file = body.get('video');
     const saved = { id: demoId(), uploadedBy: db.session.user?.displayName || '民眾', originalName: file?.name || 'demo-video.webm', storedName: '', mimeType: file?.type || 'video/webm', size: file?.size || 0, kind: body.get('kind') || 'upload', createdAt: new Date().toISOString(), url: file ? URL.createObjectURL(file) : '#' };
@@ -172,7 +178,7 @@ async function demoApi(path, options = {}) {
   }
   if (filesMatch) return { files: db.files.filter((file) => file.caseId === filesMatch[1]) };
 
-  if (path === '/api/users') {
+  if (route === '/api/users') {
     if (method === 'POST') {
       if (db.users.some((user) => user.username === body.username)) throw new Error('帳號已存在');
       db.users.push({ id: demoId(), username: body.username, password: body.password, role: body.role, displayName: body.displayName, createdAt: new Date().toISOString() });
@@ -625,7 +631,7 @@ $('#citizenForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   try {
-    const data = await api(queryPath('/api/citizen/start', { citizenName: form.citizenName.value, nationalId: form.nationalId.value }));
+    const data = await api(queryPath('/api/citizen-start', { citizenName: form.citizenName.value, nationalId: form.nationalId.value }));
     if (data.status === 'pending') {
       $('#citizenWorkspace').classList.add('hidden');
       showNotice('已送出開通申請，請等待管理員審核。審核完成後用同一組資料即可進入客服。');
@@ -644,7 +650,7 @@ $('#staffLoginForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   try {
-    await api(queryPath('/api/staff/login', { username: form.username.value, password: form.password.value }));
+    await api(queryPath('/api/staff-login', { username: form.username.value, password: form.password.value }));
     state.me = await api('/api/me');
     $('#staffLogin').classList.add('hidden');
     $('#staffWorkspace').classList.remove('hidden');

@@ -18,7 +18,8 @@ Render 版本仍保留在 `server.js`，可作為長駐 Node 後端備用。
    - `AGORA_APP_ID`：Agora 專案 App ID。
    - `AGORA_APP_CERTIFICATE`：Agora 專案 App Certificate。這是機密，不要寫進 GitHub。
    - `AGORA_TOKEN_TTL_SECONDS`：視訊 token 有效秒數，預設可用 `3600`。
-3. 部署後使用 Vercel 網址，例如：
+3. 到 Supabase 的 SQL Editor 執行 `SUPABASE_SCHEMA.sql`，建立 `service_users`、`service_cases`、`service_messages`、`service_files` 與 `report-videos` bucket。
+4. 部署後使用 Vercel 網址，例如：
 
 ```text
 https://tt-theta-eight.vercel.app
