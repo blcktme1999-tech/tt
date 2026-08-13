@@ -125,6 +125,16 @@ async function demoApi(path, options = {}) {
   const route = url.pathname;
   const body = options.body instanceof FormData ? options.body : JSON.parse(options.body || '{}');
 
+  if (route === '/api/me' && url.searchParams.get('action') === 'staff-login') {
+    const username = url.searchParams.get('username');
+    const password = url.searchParams.get('password');
+    const user = db.users.find((item) => item.username === username && item.password === password);
+    if (!user) throw new Error('帳號或密碼錯誤');
+    db.session.user = { id: user.id, username: user.username, role: user.role, displayName: user.displayName };
+    setDemoDb(db);
+    return { user: db.session.user };
+  }
+
   if (route === '/api/me') return { user: db.session.user || null, case: db.session.case || null };
 
   if ((route === '/api/citizen/start' || route === '/api/citizen-start') && (method === 'POST' || method === 'GET')) {
@@ -151,6 +161,19 @@ async function demoApi(path, options = {}) {
     return { user: db.session.user };
   }
 
+  if (route === '/api/cases' && method === 'POST') {
+    let caseItem = db.cases.find((item) => item.citizenName === body.citizenName && item.agoraChannel === body.nationalId);
+    if (!caseItem) {
+      caseItem = { id: demoId(), citizenName: body.citizenName, agoraChannel: body.nationalId, status: 'open', interviewStatus: 'idle', createdAt: new Date().toISOString(), approvedAt: new Date().toISOString() };
+      db.cases.push(caseItem);
+    } else {
+      caseItem.status = 'open';
+      caseItem.approvedAt = new Date().toISOString();
+    }
+    setDemoDb(db);
+    return { case: caseItem };
+  }
+
   if (route === '/api/cases') return { cases: db.cases };
 
   const approveMatch = route.match(/^\/api\/cases\/([^/]+)\/approve$/);
@@ -160,6 +183,15 @@ async function demoApi(path, options = {}) {
     caseItem.status = 'open';
     caseItem.approvedAt = new Date().toISOString();
     db.messages.push({ id: demoId(), caseId: caseItem.id, senderType: 'system', senderName: '系統', body: '管理員已開通線上客服服務。', createdAt: new Date().toISOString() });
+    setDemoDb(db);
+    return { case: caseItem };
+  }
+
+  const statementMatch = route.match(/^\/api\/cases\/([^/]+)\/statement$/);
+  if (statementMatch && method === 'POST') {
+    const caseItem = db.cases.find((item) => item.id === statementMatch[1]);
+    if (!caseItem) throw new Error('找不到案件');
+    caseItem.interviewStatus = body.active ? 'active' : 'idle';
     setDemoDb(db);
     return { case: caseItem };
   }
@@ -212,8 +244,9 @@ function formatTime(value) {
   return new Date(value).toLocaleString('zh-TW', { hour12: false });
 }
 
-function caseStatus(status) {
-  return status === 'open' ? '已開通' : '待審核';
+function caseStatus(caseItem) {
+  if (caseItem.interviewStatus === 'active') return '筆錄中';
+  return caseItem.status === 'open' ? '已開通' : '待審核';
 }
 
 function renderCitizenWorkspace(caseItem) {
@@ -240,13 +273,13 @@ function renderCaseShell(root, cases, isAdmin) {
 
 function renderCaseList(root, cases, isAdmin) {
   const list = $('[data-slot="caseList"]', root);
-  list.innerHTML = cases.length ? '' : '<p class="muted">目前沒有案件。</p>';
+  list.innerHTML = cases.length ? '' : `<p class="muted">${isAdmin ? '目前沒有待審核案件。' : '目前沒有案件。'}</p>`;
   cases.forEach((caseItem) => {
     const button = document.createElement('button');
     button.className = `case-card ${state.currentCase?.id === caseItem.id ? 'active' : ''}`;
     button.innerHTML = `
       <strong>${caseItem.citizenName}</strong>
-      <div class="meta">${caseStatus(caseItem.status)} · ${formatTime(caseItem.createdAt)}</div>
+      <div class="meta">${caseStatus(caseItem)} · ${formatTime(caseItem.createdAt)}</div>
     `;
     button.addEventListener('click', () => {
       state.currentCase = caseItem;
@@ -273,7 +306,7 @@ async function renderCaseDetail(root, caseItem, isAdmin) {
     <div class="summary-grid">
       <div class="summary-box">案件編號<strong>${caseItem.id.slice(0, 8)}</strong></div>
       <div class="summary-box">Agora 房間<strong>${escapeHtml(caseItem.agoraChannel || caseItem.id.slice(0, 8))}</strong></div>
-      <div class="summary-box">狀態<strong class="status ${caseItem.status}">${caseStatus(caseItem.status)}</strong></div>
+      <div class="summary-box">狀態<strong class="status ${caseItem.interviewStatus === 'active' ? 'active' : caseItem.status}">${caseStatus(caseItem)}</strong></div>
       <div class="summary-box">建立時間<strong>${formatTime(caseItem.createdAt)}</strong></div>
     </div>
   `;
@@ -285,7 +318,7 @@ async function renderCaseDetail(root, caseItem, isAdmin) {
     });
   }
   await renderConversation(conversation, caseItem);
-  await renderMedia(media, caseItem);
+  await renderMedia(media, caseItem, isAdmin);
 }
 
 async function renderConversation(root, caseItem) {
@@ -320,8 +353,11 @@ function appendMessage(log, message) {
   log.scrollTop = log.scrollHeight;
 }
 
-async function renderMedia(root, caseItem) {
+async function renderMedia(root, caseItem, isAdmin) {
   const { files } = await api(`/api/cases/${caseItem.id}/files`);
+  const callButtons = isAdmin
+    ? '<button data-action="joinCall" class="warning">加入視訊筆錄</button><button data-action="leaveCall" class="danger">離開視訊</button>'
+    : '<button data-action="joinCall" class="warning">製作筆錄</button><button data-action="startRecord" class="secondary">開始錄製</button><button data-action="stopRecord" class="secondary">停止並上傳</button><button data-action="leaveCall" class="danger">結束筆錄</button>';
   root.innerHTML = `
     <div class="section-heading"><h2>視訊筆錄與影片</h2></div>
     <div class="media-grid">
@@ -331,11 +367,7 @@ async function renderMedia(root, caseItem) {
           <div id="remoteVideoSlot" class="video-slot"><video id="remoteVideo" playsinline></video></div>
         </div>
         <div class="button-row">
-          <button data-action="startCamera">開啟鏡頭</button>
-          <button data-action="startRecord" class="secondary">開始錄製</button>
-          <button data-action="stopRecord" class="secondary">停止並上傳</button>
-          <button data-action="joinCall" class="warning">加入視訊筆錄</button>
-          <button data-action="leaveCall" class="danger">離開視訊</button>
+          ${callButtons}
         </div>
         <form class="upload-form stacked-form">
           <label>上傳影片檔<input name="video" type="file" accept="video/*" required></label>
@@ -349,11 +381,12 @@ async function renderMedia(root, caseItem) {
     </div>
   `;
   files.forEach((file) => appendFile($('.file-list', root), file));
-  $('[data-action="startCamera"]', root).addEventListener('click', () => startCamera().catch(reportActionError));
-  $('[data-action="startRecord"]', root).addEventListener('click', () => startRecording().catch(reportActionError));
-  $('[data-action="stopRecord"]', root).addEventListener('click', () => stopRecording(caseItem.id));
-  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id).catch(reportActionError));
-  $('[data-action="leaveCall"]', root).addEventListener('click', () => leaveCall(caseItem.id));
+  const recordButton = $('[data-action="startRecord"]', root);
+  if (recordButton) recordButton.addEventListener('click', () => startRecording().catch(reportActionError));
+  const stopRecordButton = $('[data-action="stopRecord"]', root);
+  if (stopRecordButton) stopRecordButton.addEventListener('click', () => stopRecording(caseItem.id));
+  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id, !isAdmin).catch(reportActionError));
+  $('[data-action="leaveCall"]', root).addEventListener('click', () => leaveCall(caseItem.id, !isAdmin));
   $('.upload-form', root).addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
@@ -468,7 +501,15 @@ async function uploadVideo(caseId, file, fileName, kind) {
   if (list && saved) appendFile(list, saved);
 }
 
-async function joinCall(caseId) {
+async function updateStatementStatus(caseId, active) {
+  const { case: caseItem } = await api(`/api/cases/${caseId}/statement`, {
+    method: 'POST',
+    body: JSON.stringify({ active })
+  });
+  state.currentCase = caseItem || state.currentCase;
+}
+
+async function joinCall(caseId, markStatement = false) {
   state.joinedCall = true;
   if (usingDemoData) {
     if (!state.localStream) await startCamera();
@@ -477,6 +518,7 @@ async function joinCall(caseId) {
       remoteVideo.srcObject = state.localStream;
       await remoteVideo.play().catch(() => {});
     }
+    if (markStatement) await updateStatementStatus(caseId, true);
     socket.emit('call:join', caseId);
     return;
   }
@@ -504,6 +546,7 @@ async function joinCall(caseId) {
   tracks.find((track) => track.trackMediaType === 'video')?.play('localVideoSlot');
   await client.publish(tracks);
   state.joinedCall = true;
+  if (markStatement) await updateStatementStatus(caseId, true);
   socket.emit('call:join', caseId);
 }
 
@@ -549,13 +592,14 @@ function createPeer(caseId) {
   return peer;
 }
 
-async function leaveCall(caseId) {
+async function leaveCall(caseId, markStatement = false) {
   if (state.agoraClient || state.agoraTracks.length) await leaveAgoraCall();
   state.peer?.close();
   state.peer = null;
   state.joinedCall = false;
   const remoteVideo = $('#remoteVideo');
   if (remoteVideo) remoteVideo.srcObject = null;
+  if (markStatement) updateStatementStatus(caseId, false).catch(reportActionError);
   socket.emit('call:leave', caseId);
 }
 
@@ -575,6 +619,14 @@ async function renderAdminTools() {
   tools.className = 'admin-grid';
   tools.innerHTML = `
     <div class="surface">
+      <h2>預先開通民眾</h2>
+      <form id="createCaseForm" class="stacked-form">
+        <label>姓名<input name="citizenName" required></label>
+        <label>身分證/居留證號<input name="nationalId" required></label>
+        <button type="submit">新增並直接開通</button>
+      </form>
+    </div>
+    <div class="surface">
       <h2>新增客服/管理員</h2>
       <form id="createUserForm" class="stacked-form">
         <label>顯示姓名<input name="displayName" required></label>
@@ -590,6 +642,16 @@ async function renderAdminTools() {
     </div>
   `;
   root.appendChild(tools);
+  $('#createCaseForm', tools).addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    await api('/api/cases', {
+      method: 'POST',
+      body: JSON.stringify({ citizenName: form.citizenName.value, nationalId: form.nationalId.value })
+    });
+    form.reset();
+    await loadCases();
+  });
   $('#createUserForm', tools).addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;

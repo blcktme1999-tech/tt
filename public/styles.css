@@ -160,6 +160,7 @@ h3 { margin-bottom: .45rem; }
 .summary-box strong { display: block; margin-top: .25rem; }
 .status { color: var(--success); font-weight: 700; }
 .status.pending { color: var(--accent); }
+.status.active { color: var(--danger); }
 
 .chat-log {
   display: grid;

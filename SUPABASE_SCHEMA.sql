@@ -14,6 +14,7 @@ create table if not exists public.service_cases (
   citizen_name text not null,
   national_id text not null,
   status text not null default 'pending' check (status in ('pending', 'open', 'closed')),
+  interview_status text not null default 'idle' check (interview_status in ('idle', 'active')),
   assigned_user_id uuid references public.service_users(id) on delete set null,
   approved_at timestamptz,
   created_at timestamptz not null default now(),
@@ -42,8 +43,11 @@ create table if not exists public.service_files (
   created_at timestamptz not null default now()
 );
 
+alter table public.service_cases add column if not exists interview_status text not null default 'idle';
+
 create index if not exists service_cases_created_at_idx on public.service_cases(created_at desc);
 create index if not exists service_cases_status_idx on public.service_cases(status);
+create index if not exists service_cases_interview_status_idx on public.service_cases(interview_status);
 create index if not exists service_messages_case_id_created_at_idx on public.service_messages(case_id, created_at);
 create index if not exists service_files_case_id_created_at_idx on public.service_files(case_id, created_at desc);
 

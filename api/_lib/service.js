@@ -116,6 +116,7 @@ function publicCase(row) {
     citizenName: row.citizen_name || row.citizenName,
     agoraChannel: row.national_id || row.agoraChannel,
     status: row.status,
+    interviewStatus: row.interview_status || row.interviewStatus || 'idle',
     assignedUserId: row.assigned_user_id || row.assignedUserId,
     createdAt: row.created_at || row.createdAt,
     approvedAt: row.approved_at || row.approvedAt
