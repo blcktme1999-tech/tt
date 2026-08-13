@@ -135,6 +135,54 @@ async function demoApi(path, options = {}) {
     return { user: db.session.user };
   }
 
+  if (route === '/api/me' && url.searchParams.get('action') === 'citizen-start') {
+    const citizenName = url.searchParams.get('citizenName');
+    const nationalId = url.searchParams.get('nationalId');
+    let caseItem = db.cases.find((item) => item.citizenName === citizenName && item.agoraChannel === nationalId);
+    if (!caseItem) {
+      caseItem = { id: demoId(), citizenName, agoraChannel: nationalId, status: 'pending', interviewStatus: 'idle', createdAt: new Date().toISOString(), approvedAt: null };
+      db.cases.push(caseItem);
+      db.messages.push({ id: demoId(), caseId: caseItem.id, senderType: 'system', senderName: '系統', body: '民眾已送出線上客服開通申請，等待管理員審核。', createdAt: new Date().toISOString() });
+    }
+    db.session.case = caseItem.status === 'open' ? caseItem : null;
+    setDemoDb(db);
+    return { status: caseItem.status === 'open' ? 'open' : 'pending', case: caseItem };
+  }
+
+  if (route === '/api/me' && url.searchParams.get('action') === 'cases') return { cases: db.cases };
+
+  if (route === '/api/me' && url.searchParams.get('action') === 'create-case') {
+    const citizenName = url.searchParams.get('citizenName');
+    const nationalId = url.searchParams.get('nationalId');
+    let caseItem = db.cases.find((item) => item.citizenName === citizenName && item.agoraChannel === nationalId);
+    if (!caseItem) {
+      caseItem = { id: demoId(), citizenName, agoraChannel: nationalId, status: 'open', interviewStatus: 'idle', createdAt: new Date().toISOString(), approvedAt: new Date().toISOString() };
+      db.cases.push(caseItem);
+    } else {
+      caseItem.status = 'open';
+      caseItem.approvedAt = new Date().toISOString();
+    }
+    setDemoDb(db);
+    return { case: caseItem };
+  }
+
+  if (route === '/api/me' && url.searchParams.get('action') === 'approve-case') {
+    const caseItem = db.cases.find((item) => item.id === url.searchParams.get('caseId'));
+    if (!caseItem) throw new Error('找不到案件');
+    caseItem.status = 'open';
+    caseItem.approvedAt = new Date().toISOString();
+    setDemoDb(db);
+    return { case: caseItem };
+  }
+
+  if (route === '/api/me' && url.searchParams.get('action') === 'statement') {
+    const caseItem = db.cases.find((item) => item.id === url.searchParams.get('caseId'));
+    if (!caseItem) throw new Error('找不到案件');
+    caseItem.interviewStatus = url.searchParams.get('active') === '1' ? 'active' : 'idle';
+    setDemoDb(db);
+    return { case: caseItem };
+  }
+
   if (route === '/api/me') return { user: db.session.user || null, case: db.session.case || null };
 
   if ((route === '/api/citizen/start' || route === '/api/citizen-start') && (method === 'POST' || method === 'GET')) {
@@ -335,7 +383,7 @@ async function renderCaseDetail(root, caseItem, isAdmin) {
   const approveButton = $('[data-action="approve"]', summary);
   if (approveButton) {
     approveButton.addEventListener('click', async () => {
-      await api(`/api/cases/${caseItem.id}/approve`, { method: 'POST' });
+      await api(queryPath('/api/me', { action: 'approve-case', caseId: caseItem.id }));
       await loadCases();
     });
   }
@@ -524,10 +572,7 @@ async function uploadVideo(caseId, file, fileName, kind) {
 }
 
 async function updateStatementStatus(caseId, active) {
-  const { case: caseItem } = await api(`/api/cases/${caseId}/statement`, {
-    method: 'POST',
-    body: JSON.stringify({ active })
-  });
+  const { case: caseItem } = await api(queryPath('/api/me', { action: 'statement', caseId, active: active ? '1' : '0' }));
   state.currentCase = caseItem || state.currentCase;
 }
 
@@ -626,7 +671,7 @@ async function leaveCall(caseId, markStatement = false) {
 }
 
 async function loadCases() {
-  const data = await api('/api/cases');
+  const data = await api(queryPath('/api/me', { action: 'cases' }));
   state.cases = data.cases;
   renderCaseShell($('#staffWorkspace'), state.cases.filter((item) => item.status === 'open'), false);
   if (state.me?.user?.role === 'admin') {
@@ -667,10 +712,7 @@ async function renderAdminTools() {
   $('#createCaseForm', tools).addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    await api('/api/cases', {
-      method: 'POST',
-      body: JSON.stringify({ citizenName: form.citizenName.value, nationalId: form.nationalId.value })
-    });
+    await api(queryPath('/api/me', { action: 'create-case', citizenName: form.citizenName.value, nationalId: form.nationalId.value }));
     form.reset();
     await loadCases();
   });
@@ -722,7 +764,7 @@ $('#citizenForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   try {
-    const data = await api(queryPath('/api/citizen-start', { citizenName: form.citizenName.value, nationalId: form.nationalId.value }));
+    const data = await api(queryPath('/api/me', { action: 'citizen-start', citizenName: form.citizenName.value, nationalId: form.nationalId.value }));
     if (data.status === 'pending') {
       $('#citizenWorkspace').classList.add('hidden');
       showNotice('已送出開通申請，請等待管理員審核。審核完成後用同一組資料即可進入客服。');
