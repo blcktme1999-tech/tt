@@ -1,11 +1,11 @@
 const { bcrypt, createSessionCookie, ensureDefaultAdmin, getJsonBody, getSupabase, json, methodNotAllowed, publicUser } = require('../_lib/service');
 
 async function handler(req, res) {
-  if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
+  if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
   try {
     const client = getSupabase();
     await ensureDefaultAdmin(client);
-    const body = await getJsonBody(req);
+    const body = req.method === 'GET' ? req.query : await getJsonBody(req);
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
     const result = await client.from('service_users').select('*').eq('username', username).limit(1);

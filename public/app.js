@@ -39,6 +39,11 @@ async function api(path, options = {}) {
   return data;
 }
 
+function queryPath(path, params) {
+  const search = new URLSearchParams(params);
+  return `${path}?${search.toString()}`;
+}
+
 function createDemoSocket() {
   const handlers = {};
   const dispatch = (event, payload) => {
@@ -620,10 +625,7 @@ $('#citizenForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   try {
-    const data = await api('/api/citizen/start', {
-      method: 'POST',
-      body: JSON.stringify({ citizenName: form.citizenName.value, nationalId: form.nationalId.value })
-    });
+    const data = await api(queryPath('/api/citizen/start', { citizenName: form.citizenName.value, nationalId: form.nationalId.value }));
     if (data.status === 'pending') {
       $('#citizenWorkspace').classList.add('hidden');
       showNotice('已送出開通申請，請等待管理員審核。審核完成後用同一組資料即可進入客服。');
@@ -642,10 +644,7 @@ $('#staffLoginForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   try {
-    await api('/api/staff/login', {
-      method: 'POST',
-      body: JSON.stringify({ username: form.username.value, password: form.password.value })
-    });
+    await api(queryPath('/api/staff/login', { username: form.username.value, password: form.password.value }));
     state.me = await api('/api/me');
     $('#staffLogin').classList.add('hidden');
     $('#staffWorkspace').classList.remove('hidden');

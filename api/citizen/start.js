@@ -2,9 +2,9 @@ const { createSessionCookie, getJsonBody, getSupabase, json, methodNotAllowed, p
 
 async function handler(req, res) {
   try {
-    if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
+    if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
     const client = getSupabase();
-    const body = await getJsonBody(req);
+    const body = req.method === 'GET' ? req.query : await getJsonBody(req);
     const citizenName = String(body.citizenName || '').trim();
     const nationalId = String(body.nationalId || '').trim().toUpperCase();
     if (citizenName.length < 2 || nationalId.length < 6) return json(res, 400, { error: '請輸入姓名與身分證/居留證號' });
