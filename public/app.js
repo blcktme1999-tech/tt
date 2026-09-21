@@ -908,7 +908,8 @@ socket.on('call:peer-left', () => {
 (async function boot() {
   const entryMode = document.body.dataset.entry || 'mixed';
   const isAdminPage = window.location.pathname === '/admin' || window.location.pathname === '/admin/';
-  if (entryMode === 'citizen') {
+  const staffHash = window.location.hash === '#staff' || window.location.hash === '#admin';
+  if (entryMode === 'citizen' && !staffHash) {
     activatePanel('citizenPanel');
     window.history.replaceState(null, '', window.location.pathname);
     state.me = await api('/api/me').catch(() => ({ user: null, case: null }));
