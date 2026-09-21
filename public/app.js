@@ -14,7 +14,9 @@ const state = {
   peer: null,
   joinedCall: false,
   agoraClient: null,
-  agoraTracks: []
+  agoraTracks: [],
+  messagePollTimer: null,
+  messageIds: new Set()
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -396,6 +398,7 @@ async function renderCaseDetail(root, caseItem, isAdmin) {
 
 async function renderConversation(root, caseItem) {
   const { messages } = await api(`/api/cases/${caseItem.id}/messages`);
+  state.messageIds = new Set(messages.map((message) => message.id));
   root.innerHTML = `
     <div class="section-heading"><h2>客服訊息紀錄</h2></div>
     <div class="chat-log"></div>
@@ -410,8 +413,38 @@ async function renderConversation(root, caseItem) {
     event.preventDefault();
     const body = event.currentTarget.body.value.trim();
     if (!body) return;
-    socket.emit('message:create', { caseId: caseItem.id, body });
+    postMessage(caseItem.id, body).catch(reportActionError);
     event.currentTarget.reset();
+  });
+  startMessagePolling(caseItem.id);
+}
+
+async function postMessage(caseId, body) {
+  const { message } = await api(`/api/cases/${caseId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ body })
+  });
+  const log = $('.panel.active .chat-log');
+  if (log && message && !state.messageIds.has(message.id)) {
+    state.messageIds.add(message.id);
+    appendMessage(log, message);
+  }
+}
+
+function startMessagePolling(caseId) {
+  clearInterval(state.messagePollTimer);
+  state.messagePollTimer = setInterval(() => refreshMessages(caseId).catch(() => {}), 2500);
+}
+
+async function refreshMessages(caseId) {
+  if (state.currentCase?.id !== caseId) return;
+  const log = $('.panel.active .chat-log');
+  if (!log) return;
+  const { messages } = await api(`/api/cases/${caseId}/messages`);
+  messages.forEach((message) => {
+    if (state.messageIds.has(message.id)) return;
+    state.messageIds.add(message.id);
+    appendMessage(log, message);
   });
 }
 
