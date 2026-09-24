@@ -15,6 +15,7 @@ const state = {
   joinedCall: false,
   agoraClient: null,
   agoraTracks: [],
+  callRoot: null,
   messagePollTimer: null,
   messageIds: new Set()
 };
@@ -469,8 +470,8 @@ async function renderMedia(root, caseItem, isAdmin) {
     <div class="media-grid">
       <div class="media-controls">
         <div class="video-pair">
-          <div id="localVideoSlot" class="video-slot"><video id="localVideo" muted playsinline></video></div>
-          <div id="remoteVideoSlot" class="video-slot"><video id="remoteVideo" playsinline></video></div>
+          <div data-slot="localVideoSlot" class="video-slot"><video data-slot="localVideo" muted playsinline></video></div>
+          <div data-slot="remoteVideoSlot" class="video-slot"><video data-slot="remoteVideo" playsinline></video></div>
         </div>
         <div class="button-row">
           ${callButtons}
@@ -487,8 +488,8 @@ async function renderMedia(root, caseItem, isAdmin) {
     </div>
   `;
   files.forEach((file) => appendFile($('.file-list', root), file));
-  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id, !isAdmin, isAdmin).catch(reportActionError));
-  $('[data-action="leaveCall"]', root).addEventListener('click', () => leaveCall(caseItem.id, !isAdmin, isAdmin));
+  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id, !isAdmin, isAdmin, root).catch(reportActionError));
+  $('[data-action="leaveCall"]', root).addEventListener('click', () => leaveCall(caseItem.id, !isAdmin, isAdmin, root));
   $('.upload-form', root).addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
@@ -514,9 +515,9 @@ function appendFile(list, file) {
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('此瀏覽器或網址不支援鏡頭 API，請使用 HTTPS 或 localhost 測試。');
   state.localStream = await getCameraStream();
-  const localVideo = $('#localVideo');
+  const localVideo = $('[data-slot="localVideo"]', state.callRoot || document);
   if (localVideo) localVideo.srcObject = state.localStream;
-  await localVideo.play().catch(() => {});
+  await localVideo?.play().catch(() => {});
 }
 
 async function getCameraStream() {
@@ -577,7 +578,8 @@ function startRecordingFromStream(stream) {
 
 function startRemoteElementRecording(caseId) {
   if (state.recorder && state.recorder.state !== 'inactive') return;
-  const remoteVideo = $('#remoteVideoSlot video') || $('#remoteVideo');
+  const root = state.callRoot || document;
+  const remoteVideo = $('[data-slot="remoteVideoSlot"] video', root) || $('[data-slot="remoteVideo"]', root);
   const stream = remoteVideo?.captureStream?.() || remoteVideo?.mozCaptureStream?.();
   if (!stream) throw new Error('此瀏覽器不支援自動錄製遠端視訊畫面。');
   if (!stream.getVideoTracks().length) throw new Error('遠端視訊尚未出現，請稍後再試。');
@@ -634,12 +636,13 @@ async function updateStatementStatus(caseId, active) {
   state.currentCase = caseItem || state.currentCase;
 }
 
-async function joinCall(caseId, markStatement = false, autoRecordRemote = false) {
+async function joinCall(caseId, markStatement = false, autoRecordRemote = false, root = null) {
+  state.callRoot = root || state.callRoot || document;
   state.joinedCall = true;
   state.autoRecordCaseId = autoRecordRemote ? caseId : null;
   if (usingDemoData) {
     if (!state.localStream) await startCamera();
-    const remoteVideo = $('#remoteVideo');
+    const remoteVideo = $('[data-slot="remoteVideo"]', state.callRoot);
     if (remoteVideo) {
       remoteVideo.srcObject = state.localStream;
       await remoteVideo.play().catch(() => {});
@@ -651,29 +654,32 @@ async function joinCall(caseId, markStatement = false, autoRecordRemote = false)
   }
 
   if (!window.AgoraRTC) throw new Error('Agora SDK 尚未載入，請重新整理後再試。');
-  await leaveCall(caseId);
+  await leaveCall(caseId, false, false, state.callRoot);
   const session = await api(`/api/cases/${caseId}/agora-token`, { method: 'POST' });
   const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
   state.agoraClient = client;
+  const localVideoSlot = $('[data-slot="localVideoSlot"]', state.callRoot);
+  const remoteVideoSlot = $('[data-slot="remoteVideoSlot"]', state.callRoot);
 
   client.on('user-published', async (user, mediaType) => {
     await client.subscribe(user, mediaType);
     if (mediaType === 'video') {
-      user.videoTrack.play('remoteVideoSlot');
+      remoteVideoSlot.innerHTML = '';
+      user.videoTrack.play(remoteVideoSlot);
       if (state.autoRecordCaseId) setTimeout(() => tryStartRemoteElementRecording(state.autoRecordCaseId), 300);
     }
     if (mediaType === 'audio') user.audioTrack.play();
   });
   client.on('user-unpublished', (_user, mediaType) => {
-    if (mediaType === 'video') $('#remoteVideoSlot').innerHTML = '<video id="remoteVideo" playsinline></video>';
+    if (mediaType === 'video') remoteVideoSlot.innerHTML = '<video data-slot="remoteVideo" playsinline></video>';
   });
 
   await client.join(session.appId, session.channelName, session.token, session.uid);
   const tracks = await createAgoraTracks();
   state.agoraTracks = tracks;
-  $('#localVideoSlot').innerHTML = '';
-  $('#remoteVideoSlot').innerHTML = '';
-  tracks.find((track) => track.trackMediaType === 'video')?.play('localVideoSlot');
+  localVideoSlot.innerHTML = '';
+  remoteVideoSlot.innerHTML = '';
+  tracks.find((track) => track.trackMediaType === 'video')?.play(localVideoSlot);
   await client.publish(tracks);
   state.joinedCall = true;
   if (markStatement) await updateStatementStatus(caseId, true);
@@ -694,7 +700,7 @@ async function createAgoraTracks() {
   }
 }
 
-async function leaveAgoraCall() {
+async function leaveAgoraCall(root = state.callRoot || document) {
   state.agoraTracks.forEach((track) => {
     track.stop();
     track.close();
@@ -704,8 +710,10 @@ async function leaveAgoraCall() {
     await state.agoraClient.leave();
     state.agoraClient = null;
   }
-  $('#localVideoSlot').innerHTML = '<video id="localVideo" muted playsinline></video>';
-  $('#remoteVideoSlot').innerHTML = '<video id="remoteVideo" playsinline></video>';
+  const localVideoSlot = $('[data-slot="localVideoSlot"]', root);
+  const remoteVideoSlot = $('[data-slot="remoteVideoSlot"]', root);
+  if (localVideoSlot) localVideoSlot.innerHTML = '<video data-slot="localVideo" muted playsinline></video>';
+  if (remoteVideoSlot) remoteVideoSlot.innerHTML = '<video data-slot="remoteVideo" playsinline></video>';
 }
 
 function createPeer(caseId) {
@@ -723,16 +731,16 @@ function createPeer(caseId) {
   return peer;
 }
 
-async function leaveCall(caseId, markStatement = false, stopRemoteRecording = false) {
+async function leaveCall(caseId, markStatement = false, stopRemoteRecording = false, root = state.callRoot || document) {
   if (stopRemoteRecording && state.recorder && state.recorder.state !== 'inactive') stopRecording(state.recorderCaseId || caseId);
-  if (state.agoraClient || state.agoraTracks.length) await leaveAgoraCall();
+  if (state.agoraClient || state.agoraTracks.length) await leaveAgoraCall(root);
   state.peer?.close();
   state.peer = null;
   state.joinedCall = false;
   state.autoRecordCaseId = null;
   state.remoteRecordStream?.getTracks().forEach((track) => track.stop());
   state.remoteRecordStream = null;
-  const remoteVideo = $('#remoteVideo');
+  const remoteVideo = $('[data-slot="remoteVideo"]', root);
   if (remoteVideo) remoteVideo.srcObject = null;
   if (markStatement) updateStatementStatus(caseId, false).catch(reportActionError);
   socket.emit('call:leave', caseId);
