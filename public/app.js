@@ -694,7 +694,6 @@ async function joinCall(caseId, markStatement = false, autoRecordRemote = false,
   const tracks = await createAgoraTracks();
   state.agoraTracks = tracks;
   localVideoSlot.innerHTML = '';
-  remoteVideoSlot.innerHTML = '';
   tracks.find((track) => track.trackMediaType === 'video')?.play(localVideoSlot);
   await client.publish(tracks);
   await subscribeRemoteUsers(client, remoteVideoSlot);
