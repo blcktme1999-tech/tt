@@ -13,6 +13,8 @@ const state = {
   autoRecordCaseId: null,
   peer: null,
   joinedCall: false,
+  callCaseId: null,
+  publishingLocal: false,
   agoraClient: null,
   agoraTracks: [],
   callRoot: null,
@@ -503,6 +505,9 @@ async function renderMedia(root, caseItem, isAdmin) {
       reportActionError(error);
     }
   });
+  if (isStaffUser && caseItem.interviewStatus === 'active') {
+    setTimeout(() => watchCall(caseItem.id, root).catch(reportActionError), 0);
+  }
 }
 
 function appendFile(list, file) {
@@ -642,6 +647,8 @@ async function updateStatementStatus(caseId, active) {
 async function joinCall(caseId, markStatement = false, autoRecordRemote = false, root = null) {
   state.callRoot = root || state.callRoot || document;
   state.joinedCall = true;
+  state.callCaseId = caseId;
+  state.publishingLocal = true;
   state.autoRecordCaseId = autoRecordRemote ? caseId : null;
   if (usingDemoData) {
     if (!state.localStream) await startCamera();
@@ -658,6 +665,10 @@ async function joinCall(caseId, markStatement = false, autoRecordRemote = false,
 
   if (!window.AgoraRTC) throw new Error('Agora SDK 尚未載入，請重新整理後再試。');
   await leaveCall(caseId, false, false, state.callRoot);
+  state.joinedCall = true;
+  state.callCaseId = caseId;
+  state.publishingLocal = true;
+  state.autoRecordCaseId = autoRecordRemote ? caseId : null;
   const session = await api(`/api/cases/${caseId}/agora-token`, { method: 'POST' });
   const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
   state.agoraClient = client;
@@ -684,9 +695,40 @@ async function joinCall(caseId, markStatement = false, autoRecordRemote = false,
   setTimeout(() => subscribeRemoteUsers(client, remoteVideoSlot).catch(() => {}), 1000);
   setTimeout(() => subscribeRemoteUsers(client, remoteVideoSlot).catch(() => {}), 3000);
   state.joinedCall = true;
+  state.callCaseId = caseId;
+  state.publishingLocal = true;
   if (markStatement) await updateStatementStatus(caseId, true);
   if (autoRecordRemote) tryStartRemoteElementRecording(caseId);
   socket.emit('call:join', caseId);
+}
+
+async function watchCall(caseId, root = null) {
+  if (!state.me?.user) return;
+  if (state.joinedCall && state.callCaseId === caseId) return;
+  state.callRoot = root || state.callRoot || document;
+  state.autoRecordCaseId = caseId;
+  if (usingDemoData) return;
+  if (!window.AgoraRTC) throw new Error('Agora SDK 尚未載入，請重新整理後再試。');
+  await leaveCall(caseId, false, false, state.callRoot);
+  state.joinedCall = true;
+  state.callCaseId = caseId;
+  state.publishingLocal = false;
+  state.autoRecordCaseId = caseId;
+  const session = await api(`/api/cases/${caseId}/agora-token`, { method: 'POST' });
+  const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+  state.agoraClient = client;
+  state.remoteSubscriptions = new Set();
+  const remoteVideoSlot = $('[data-slot="remoteVideoSlot"]', state.callRoot);
+  client.on('user-published', async (user, mediaType) => {
+    await subscribeRemoteUser(client, user, mediaType, remoteVideoSlot);
+  });
+  client.on('user-unpublished', (_user, mediaType) => {
+    if (mediaType === 'video') remoteVideoSlot.innerHTML = '<video data-slot="remoteVideo" playsinline></video>';
+  });
+  await client.join(session.appId, session.channelName, session.token, session.uid);
+  await subscribeRemoteUsers(client, remoteVideoSlot);
+  setTimeout(() => subscribeRemoteUsers(client, remoteVideoSlot).catch(() => {}), 1000);
+  setTimeout(() => subscribeRemoteUsers(client, remoteVideoSlot).catch(() => {}), 3000);
 }
 
 async function subscribeRemoteUsers(client, remoteVideoSlot) {
@@ -760,6 +802,8 @@ async function leaveCall(caseId, markStatement = false, stopRemoteRecording = fa
   state.peer?.close();
   state.peer = null;
   state.joinedCall = false;
+  state.callCaseId = null;
+  state.publishingLocal = false;
   state.autoRecordCaseId = null;
   state.remoteRecordStream?.getTracks().forEach((track) => track.stop());
   state.remoteRecordStream = null;
@@ -790,6 +834,10 @@ async function refreshCaseLists() {
   if ($('[data-slot="caseList"]', staffRoot)) renderCaseList(staffRoot, state.cases.filter((item) => item.status === 'open'), false);
   const adminRoot = $('#adminWorkspace');
   if ($('[data-slot="caseList"]', adminRoot)) renderCaseList(adminRoot, state.cases, true);
+  const mediaRoot = $('.panel.active [data-slot="media"]');
+  if (state.currentCase?.interviewStatus === 'active' && mediaRoot) {
+    watchCall(state.currentCase.id, mediaRoot).catch(() => {});
+  }
 }
 
 function startCasePolling() {
