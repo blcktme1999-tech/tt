@@ -370,6 +370,12 @@ function renderCaseList(root, cases, isAdmin) {
   });
 }
 
+async function openCaseDetail(root, cases, caseItem, isAdmin) {
+  state.currentCase = caseItem;
+  renderCaseList(root, cases, isAdmin);
+  await renderCaseDetail(root, caseItem, isAdmin);
+}
+
 async function renderCaseDetail(root, caseItem, isAdmin) {
   socket.emit('case:join', caseItem.id);
   const summary = $('[data-slot="caseSummary"]', root);
@@ -834,6 +840,17 @@ async function refreshCaseLists() {
   if ($('[data-slot="caseList"]', staffRoot)) renderCaseList(staffRoot, state.cases.filter((item) => item.status === 'open'), false);
   const adminRoot = $('#adminWorkspace');
   if ($('[data-slot="caseList"]', adminRoot)) renderCaseList(adminRoot, state.cases, true);
+  const activeCase = state.cases.find((item) => item.status === 'open' && item.interviewStatus === 'active');
+  if (activeCase && state.currentCase?.id !== activeCase.id) {
+    const activePanel = $('.panel.active');
+    const isAdminPanel = activePanel?.id === 'adminPanel';
+    const root = isAdminPanel ? adminRoot : staffRoot;
+    const cases = isAdminPanel ? state.cases : state.cases.filter((item) => item.status === 'open');
+    if ($('[data-slot="caseList"]', root)) {
+      await openCaseDetail(root, cases, activeCase, isAdminPanel);
+      return;
+    }
+  }
   const mediaRoot = $('.panel.active [data-slot="media"]');
   if (state.currentCase?.interviewStatus === 'active' && mediaRoot) {
     watchCall(state.currentCase.id, mediaRoot).catch(() => {});
