@@ -652,11 +652,11 @@ async function updateStatementStatus(caseId, active) {
 
 async function joinCall(caseId, markStatement = false, autoRecordRemote = false, root = null) {
   state.callRoot = root || state.callRoot || document;
-  state.joinedCall = true;
-  state.callCaseId = caseId;
-  state.publishingLocal = true;
-  state.autoRecordCaseId = autoRecordRemote ? caseId : null;
   if (usingDemoData) {
+    state.joinedCall = true;
+    state.callCaseId = caseId;
+    state.publishingLocal = true;
+    state.autoRecordCaseId = autoRecordRemote ? caseId : null;
     if (!state.localStream) await startCamera();
     const remoteVideo = $('[data-slot="remoteVideo"]', state.callRoot);
     if (remoteVideo) {
@@ -670,6 +670,10 @@ async function joinCall(caseId, markStatement = false, autoRecordRemote = false,
   }
 
   if (!window.AgoraRTC) throw new Error('Agora SDK 尚未載入，請重新整理後再試。');
+  if (state.agoraClient && state.callCaseId === caseId && !state.publishingLocal) {
+    await publishLocalTracks(caseId, markStatement, autoRecordRemote);
+    return;
+  }
   await leaveCall(caseId, false, false, state.callRoot);
   state.joinedCall = true;
   state.callCaseId = caseId;
@@ -702,6 +706,22 @@ async function joinCall(caseId, markStatement = false, autoRecordRemote = false,
   state.joinedCall = true;
   state.callCaseId = caseId;
   state.publishingLocal = true;
+  if (markStatement) await updateStatementStatus(caseId, true);
+  if (autoRecordRemote) tryStartRemoteElementRecording(caseId);
+  socket.emit('call:join', caseId);
+}
+
+async function publishLocalTracks(caseId, markStatement = false, autoRecordRemote = false) {
+  const localVideoSlot = $('[data-slot="localVideoSlot"]', state.callRoot || document);
+  const tracks = await createAgoraTracks();
+  state.agoraTracks = tracks;
+  state.publishingLocal = true;
+  state.autoRecordCaseId = autoRecordRemote ? caseId : null;
+  if (localVideoSlot) {
+    localVideoSlot.innerHTML = '';
+    tracks.find((track) => track.trackMediaType === 'video')?.play(localVideoSlot);
+  }
+  await state.agoraClient.publish(tracks);
   if (markStatement) await updateStatementStatus(caseId, true);
   if (autoRecordRemote) tryStartRemoteElementRecording(caseId);
   socket.emit('call:join', caseId);
