@@ -468,7 +468,7 @@ async function renderMedia(root, caseItem, isAdmin) {
   const { files } = await api(`/api/cases/${caseItem.id}/files`);
   const isStaffUser = Boolean(state.me?.user);
   const callButtons = isStaffUser
-    ? '<button data-action="joinCall" class="warning">加入視訊筆錄</button><button data-action="leaveCall" class="danger">結束筆錄</button>'
+    ? '<button data-action="joinCall" class="warning">開啟我方視訊/麥克風</button><button data-action="leaveCall" class="danger">停止接收</button>'
     : '<button data-action="joinCall" class="warning">製作筆錄</button><button data-action="leaveCall" class="danger">結束筆錄</button>';
   root.innerHTML = `
     <div class="section-heading"><h2>視訊筆錄與影片</h2></div>
@@ -706,14 +706,14 @@ async function watchCall(caseId, root = null) {
   if (!state.me?.user) return;
   if (state.joinedCall && state.callCaseId === caseId) return;
   state.callRoot = root || state.callRoot || document;
-  state.autoRecordCaseId = caseId;
+  state.autoRecordCaseId = null;
   if (usingDemoData) return;
   if (!window.AgoraRTC) throw new Error('Agora SDK 尚未載入，請重新整理後再試。');
   await leaveCall(caseId, false, false, state.callRoot);
   state.joinedCall = true;
   state.callCaseId = caseId;
   state.publishingLocal = false;
-  state.autoRecordCaseId = caseId;
+  state.autoRecordCaseId = null;
   const session = await api(`/api/cases/${caseId}/agora-token`, { method: 'POST' });
   const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
   state.agoraClient = client;
