@@ -16,6 +16,7 @@ const state = {
   agoraClient: null,
   agoraTracks: [],
   callRoot: null,
+  remoteSubscriptions: new Set(),
   casePollTimer: null,
   messagePollTimer: null,
   messageIds: new Set()
@@ -660,33 +661,52 @@ async function joinCall(caseId, markStatement = false, autoRecordRemote = false,
   const session = await api(`/api/cases/${caseId}/agora-token`, { method: 'POST' });
   const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
   state.agoraClient = client;
+  state.remoteSubscriptions = new Set();
   const localVideoSlot = $('[data-slot="localVideoSlot"]', state.callRoot);
   const remoteVideoSlot = $('[data-slot="remoteVideoSlot"]', state.callRoot);
 
   client.on('user-published', async (user, mediaType) => {
-    await client.subscribe(user, mediaType);
-    if (mediaType === 'video') {
-      remoteVideoSlot.innerHTML = '';
-      user.videoTrack.play(remoteVideoSlot);
-      if (state.autoRecordCaseId) setTimeout(() => tryStartRemoteElementRecording(state.autoRecordCaseId), 300);
-    }
-    if (mediaType === 'audio') user.audioTrack.play();
+    await subscribeRemoteUser(client, user, mediaType, remoteVideoSlot);
   });
   client.on('user-unpublished', (_user, mediaType) => {
     if (mediaType === 'video') remoteVideoSlot.innerHTML = '<video data-slot="remoteVideo" playsinline></video>';
   });
 
   await client.join(session.appId, session.channelName, session.token, session.uid);
+  await subscribeRemoteUsers(client, remoteVideoSlot);
   const tracks = await createAgoraTracks();
   state.agoraTracks = tracks;
   localVideoSlot.innerHTML = '';
   remoteVideoSlot.innerHTML = '';
   tracks.find((track) => track.trackMediaType === 'video')?.play(localVideoSlot);
   await client.publish(tracks);
+  await subscribeRemoteUsers(client, remoteVideoSlot);
+  setTimeout(() => subscribeRemoteUsers(client, remoteVideoSlot).catch(() => {}), 1000);
+  setTimeout(() => subscribeRemoteUsers(client, remoteVideoSlot).catch(() => {}), 3000);
   state.joinedCall = true;
   if (markStatement) await updateStatementStatus(caseId, true);
   if (autoRecordRemote) tryStartRemoteElementRecording(caseId);
   socket.emit('call:join', caseId);
+}
+
+async function subscribeRemoteUsers(client, remoteVideoSlot) {
+  await Promise.all((client.remoteUsers || []).map(async (user) => {
+    if (user.hasVideo) await subscribeRemoteUser(client, user, 'video', remoteVideoSlot);
+    if (user.hasAudio) await subscribeRemoteUser(client, user, 'audio', remoteVideoSlot);
+  }));
+}
+
+async function subscribeRemoteUser(client, user, mediaType, remoteVideoSlot) {
+  const key = `${user.uid}:${mediaType}`;
+  if (state.remoteSubscriptions.has(key)) return;
+  await client.subscribe(user, mediaType);
+  state.remoteSubscriptions.add(key);
+  if (mediaType === 'video' && user.videoTrack) {
+    remoteVideoSlot.innerHTML = '';
+    user.videoTrack.play(remoteVideoSlot);
+    if (state.autoRecordCaseId) setTimeout(() => tryStartRemoteElementRecording(state.autoRecordCaseId), 300);
+  }
+  if (mediaType === 'audio' && user.audioTrack) user.audioTrack.play();
 }
 
 async function createAgoraTracks() {
@@ -708,6 +728,7 @@ async function leaveAgoraCall(root = state.callRoot || document) {
     track.close();
   });
   state.agoraTracks = [];
+  state.remoteSubscriptions = new Set();
   if (state.agoraClient) {
     await state.agoraClient.leave();
     state.agoraClient = null;
