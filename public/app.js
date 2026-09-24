@@ -16,6 +16,7 @@ const state = {
   agoraClient: null,
   agoraTracks: [],
   callRoot: null,
+  casePollTimer: null,
   messagePollTimer: null,
   messageIds: new Set()
 };
@@ -462,7 +463,8 @@ function appendMessage(log, message) {
 
 async function renderMedia(root, caseItem, isAdmin) {
   const { files } = await api(`/api/cases/${caseItem.id}/files`);
-  const callButtons = isAdmin
+  const isStaffUser = Boolean(state.me?.user);
+  const callButtons = isStaffUser
     ? '<button data-action="joinCall" class="warning">加入視訊筆錄</button><button data-action="leaveCall" class="danger">結束筆錄</button>'
     : '<button data-action="joinCall" class="warning">製作筆錄</button><button data-action="leaveCall" class="danger">結束筆錄</button>';
   root.innerHTML = `
@@ -488,8 +490,8 @@ async function renderMedia(root, caseItem, isAdmin) {
     </div>
   `;
   files.forEach((file) => appendFile($('.file-list', root), file));
-  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id, !isAdmin, isAdmin, root).catch(reportActionError));
-  $('[data-action="leaveCall"]', root).addEventListener('click', () => leaveCall(caseItem.id, !isAdmin, isAdmin, root));
+  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id, !isStaffUser, isStaffUser, root).catch(reportActionError));
+  $('[data-action="leaveCall"]', root).addEventListener('click', () => leaveCall(caseItem.id, !isStaffUser, isStaffUser, root));
   $('.upload-form', root).addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
@@ -756,6 +758,27 @@ async function loadCases() {
   }
 }
 
+async function refreshCaseLists() {
+  if (!state.me?.user) return;
+  const data = await api(queryPath('/api/me', { action: 'cases' }));
+  state.cases = data.cases;
+  if (state.currentCase) {
+    state.currentCase = state.cases.find((item) => item.id === state.currentCase.id) || state.currentCase;
+  }
+  const staffRoot = $('#staffWorkspace');
+  if ($('[data-slot="caseList"]', staffRoot)) renderCaseList(staffRoot, state.cases.filter((item) => item.status === 'open'), false);
+  const adminRoot = $('#adminWorkspace');
+  if ($('[data-slot="caseList"]', adminRoot)) renderCaseList(adminRoot, state.cases, true);
+}
+
+function startCasePolling() {
+  clearInterval(state.casePollTimer);
+  state.casePollTimer = setInterval(() => {
+    if (state.joinedCall) return;
+    refreshCaseLists().catch(() => {});
+  }, 3000);
+}
+
 async function renderAdminTools() {
   const root = $('#adminWorkspace');
   const tools = document.createElement('div');
@@ -868,6 +891,7 @@ $('#staffLoginForm').addEventListener('submit', async (event) => {
       activatePanel('adminPanel');
     }
     await loadCases().catch(renderAdminLoadError);
+    startCasePolling();
   } catch (error) {
     window.alert(error.message || '登入失敗，請確認帳號密碼。');
   }
@@ -946,6 +970,7 @@ socket.on('call:peer-left', () => {
       activatePanel('adminPanel');
     }
     await loadCases().catch(renderAdminLoadError);
+    startCasePolling();
   } else if (window.location.hash === '#admin' || window.location.hash === '#staff') {
     activatePanel('staffPanel');
     if (isAdminPage) window.history.replaceState(null, '', '/admin#admin');
