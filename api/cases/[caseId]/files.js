@@ -17,9 +17,10 @@ async function handler(req, res) {
     const body = await getJsonBody(req);
     const parsed = dataUrlToBuffer(body.dataUrl);
     if (!parsed) return json(res, 400, { error: '檔案格式錯誤，請重新上傳' });
+    if (parsed.buffer.length > 3 * 1024 * 1024) return json(res, 413, { error: '目前每個附件上限為 3 MiB，請縮小檔案後再上傳。' });
 
-    const originalName = safeName(body.fileName || 'attachment');
-    const storedName = `${req.query.caseId}/${Date.now()}-${originalName}`;
+    const originalName = String(body.fileName || 'attachment').slice(0, 255);
+    const storedName = `${req.query.caseId}/${Date.now()}-${safeName(originalName)}`;
     const uploaded = await client.storage.from(VIDEO_BUCKET).upload(storedName, parsed.buffer, { contentType: parsed.mimeType, upsert: false });
     if (uploaded.error) throw uploaded.error;
     const publicResult = client.storage.from(VIDEO_BUCKET).getPublicUrl(storedName);
@@ -32,7 +33,7 @@ async function handler(req, res) {
       original_name: originalName,
       stored_name: storedName,
       mime_type: parsed.mimeType,
-      size: Number(body.size || parsed.buffer.length),
+      size: parsed.buffer.length,
       kind: body.kind === 'recording' ? 'recording' : 'upload',
       public_url: publicUrl
     }).select('*').single();

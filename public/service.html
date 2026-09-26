@@ -1,34 +1,55 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-Hant-TW">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>線上報案客服系統</title>
+  <title>警政服務系統｜民眾服務入口</title>
   <link rel="stylesheet" href="/public/styles.css">
 </head>
-<body data-entry="citizen">
+<body data-entry="citizen" class="police-service">
+  <a class="skip-link" href="#mainContent">跳至主要內容</a>
   <header class="app-header">
-    <div>
-      <p class="eyebrow">便民服務</p>
-      <h1>線上報案客服系統</h1>
+    <div class="service-brand">
+      <div class="emblem-placeholder">
+        <svg viewBox="0 0 48 56" aria-hidden="true" focusable="false"><path d="M24 3 44 11v16c0 12-9 21-20 26C13 48 4 39 4 27V11Z"/><path d="m15 27 6 6 13-14"/></svg>
+        <span>通用盾形標誌<br>暫用示意・非正式徽章</span>
+      </div>
+      <div>
+        <p class="agency-name">內政部警政署</p>
+        <h1>警政服務系統</h1>
+      </div>
     </div>
+    <p class="header-context">民眾線上服務入口</p>
   </header>
 
-  <main class="layout">
+  <main id="mainContent" class="layout" tabindex="-1">
     <section id="citizenPanel" class="panel active">
-      <div class="surface intro-surface">
-        <div>
-          <p class="eyebrow">姓名 + 身分證/居留證號</p>
-          <h2>申請開通後即可保留完整客服紀錄</h2>
-          <p class="muted">初次送出會進入待審核。管理員開通後，民眾用同一組資料即可進入聊天室、上傳影片或啟動視訊筆錄。</p>
+      <div id="citizenEntry" class="surface intro-surface citizen-entry">
+        <div class="entry-heading">
+          <span class="entry-shield" aria-hidden="true"><svg viewBox="0 0 48 56" focusable="false"><path d="M24 3 44 11v16c0 12-9 21-20 26C13 48 4 39 4 27V11Z"/><path d="m15 27 6 6 13-14"/></svg></span>
+          <p class="eyebrow">線上申請・案件記錄服務</p>
+          <h2>申請開通後即可保留完整案件記錄。</h2>
+          <p class="muted">填寫基本資料，送出服務開通申請。審核通過後，使用相同資料進入案件工作區，即可傳送訊息、上傳資料並使用視訊服務。</p>
         </div>
-        <form id="citizenForm" class="stacked-form">
-          <label>姓名<input name="citizenName" autocomplete="name" required></label>
-          <label>身分證/居留證號<input name="nationalId" autocomplete="off" required></label>
-          <button type="submit">進入線上客服</button>
+        <ol class="entry-steps">
+          <li><span class="step-number" aria-hidden="true">1</span><div><strong>填寫基本資料</strong><span>輸入姓名與證件號碼</span></div></li>
+          <li><span class="step-number" aria-hidden="true">2</span><div><strong>送出申請</strong><span>等待服務開通審核</span></div></li>
+          <li><span class="step-number" aria-hidden="true">3</span><div><strong>案件記錄服務</strong><span>開通後進入案件工作區</span></div></li>
+        </ol>
+        <form id="citizenForm" class="stacked-form" aria-describedby="entryHelp">
+          <label for="citizenName">姓名 <span class="field-hint">必填，請填寫真實姓名</span></label>
+          <input id="citizenName" name="citizenName" type="text" autocomplete="name" placeholder="請輸入姓名" required>
+          <label for="nationalId">身分證／居留證號 <span class="field-hint">必填</span></label>
+          <input id="nationalId" name="nationalId" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="請輸入身分證或居留證號碼" required>
+          <button class="entry-submit" type="submit">我要視訊報案 <span aria-hidden="true">→</span></button>
         </form>
+        <div id="entryHelp" class="entry-disclaimer">
+          <strong>服務使用提醒</strong>
+          <p>首次使用須先申請開通，送出資料不代表案件已正式受理。視訊服務需允許瀏覽器使用攝影機與麥克風；請在安全、安靜的環境操作，並妥善保護個人資料。</p>
+          <p>如遇緊急事故或人身安全危險，請立即撥打 <a href="tel:110">110</a>，勿等待線上審核。</p>
+        </div>
       </div>
-      <div id="citizenStatus" class="notice hidden"></div>
+      <div id="citizenStatus" class="notice hidden" role="status" aria-live="polite" aria-atomic="true"></div>
       <div id="citizenWorkspace" class="workspace hidden"></div>
     </section>
 
@@ -36,11 +57,11 @@
       <div id="staffLogin" class="surface compact">
         <h2>客服登入</h2>
         <form id="staffLoginForm" class="stacked-form">
-          <label>帳號<input name="username" autocomplete="username" required></label>
+          <label>帳號<input name="username" type="text" autocomplete="username" required></label>
           <label>密碼<input name="password" type="password" autocomplete="current-password" required></label>
           <button type="submit">登入客服端</button>
         </form>
-        <p class="muted">預設管理員：admin / admin</p>
+        <p class="muted">限授權服務人員使用，請以配發帳號登入。</p>
       </div>
       <div id="staffWorkspace" class="workspace hidden"></div>
     </section>
@@ -54,25 +75,41 @@
     </section>
   </main>
 
+  <footer class="service-footer">
+    <p>內政部警政署｜警政服務系統</p>
+    <p>請妥善保護個人資料；緊急報案請撥 <a href="tel:110">110</a>。</p>
+  </footer>
+
   <template id="caseWorkspaceTemplate">
     <div class="case-shell">
       <aside class="case-list-card">
         <div class="section-heading">
           <h2>案件列表</h2>
-          <button data-action="refreshCases">重新整理</button>
+          <button type="button" class="secondary" data-action="refreshCases">重新整理</button>
         </div>
+        <div class="case-tools">
+          <label>搜尋案件<input type="search" data-action="searchCases" placeholder="姓名或案件編號" autocomplete="off"></label>
+          <label>案件狀態<select data-action="filterCases">
+            <option value="all">全部案件</option>
+            <option value="pending">待審核</option>
+            <option value="open">已開通</option>
+            <option value="active">筆錄中</option>
+            <option value="closed">已結案</option>
+          </select></label>
+        </div>
+        <p class="case-count">案件數量 <span data-slot="caseCount" aria-live="polite">—</span></p>
         <div data-slot="caseList" class="case-list"></div>
       </aside>
-      <section class="case-detail">
+      <section class="case-detail" aria-label="案件工作區">
         <div data-slot="caseSummary" class="surface empty-state">請選擇案件</div>
-        <div data-slot="conversation" class="surface hidden"></div>
         <div data-slot="media" class="surface hidden"></div>
+        <div data-slot="conversation" class="surface hidden"></div>
       </section>
     </div>
   </template>
 
   <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="/public/video-session.js"></script>
   <script src="/public/app.js"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-const { getJsonBody, getSupabase, json, methodNotAllowed, publicCase, requireAdmin, requireStaff } = require('../_lib/service');
+const { getJsonBody, getSupabase, json, methodNotAllowed, publicCase, requireAdmin, requireStaff, serviceErrorMessage } = require('../_lib/service');
 
 module.exports = async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
@@ -35,6 +35,6 @@ module.exports = async function handler(req, res) {
     if (result.error) throw result.error;
     json(res, 200, { cases: (result.data || []).map(publicCase) });
   } catch (error) {
-    json(res, 500, { error: error.message || '讀取案件失敗' });
+    json(res, 500, { error: serviceErrorMessage(error, '讀取案件失敗') });
   }
 };

@@ -1,4 +1,4 @@
-const { bcrypt, createSessionCookie, ensureDefaultAdmin, getJsonBody, getSupabase, json, methodNotAllowed, publicUser } = require('../_lib/service');
+const { bcrypt, createSessionCookie, ensureDefaultAdmin, getJsonBody, getSupabase, json, methodNotAllowed, publicUser, serviceErrorMessage } = require('../_lib/service');
 
 async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
@@ -16,7 +16,7 @@ async function handler(req, res) {
     res.setHeader('Set-Cookie', createSessionCookie({ user }));
     json(res, 200, { user });
   } catch (error) {
-    json(res, 500, { error: error.message || '登入失敗' });
+    json(res, 500, { error: serviceErrorMessage(error, '登入失敗') });
   }
 }
 

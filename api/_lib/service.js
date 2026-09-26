@@ -51,6 +51,15 @@ function getSupabase() {
   });
 }
 
+function serviceErrorMessage(error, fallback) {
+  const message = error?.message || String(error || '');
+  if (message === 'fetch failed' || message.includes('fetch failed')) {
+    return '無法連線到 Supabase，請確認 SUPABASE_URL、SUPABASE_SERVICE_ROLE_KEY 正確，且 Supabase 專案未暫停。';
+  }
+  if (message === 'Missing required Vercel environment variables.') return message;
+  return message || fallback;
+}
+
 function parseCookies(req) {
   const header = req.headers.cookie || '';
   return header.split(';').reduce((cookies, part) => {
@@ -234,5 +243,6 @@ module.exports = {
   requireAdmin,
   requireCaseAccess,
   requireStaff,
-  safeName
+  safeName,
+  serviceErrorMessage
 };

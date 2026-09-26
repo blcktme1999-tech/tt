@@ -1,4 +1,4 @@
-const { bcrypt, getJsonBody, getSupabase, json, methodNotAllowed, publicUser, requireAdmin } = require('./_lib/service');
+const { bcrypt, getJsonBody, getSupabase, json, methodNotAllowed, publicUser, requireAdmin, serviceErrorMessage } = require('./_lib/service');
 
 async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
@@ -23,7 +23,7 @@ async function handler(req, res) {
     if (inserted.error) throw inserted.error;
     json(res, 200, { ok: true });
   } catch (error) {
-    json(res, 500, { error: error.message || '帳號處理失敗' });
+    json(res, 500, { error: serviceErrorMessage(error, '帳號處理失敗') });
   }
 }
 

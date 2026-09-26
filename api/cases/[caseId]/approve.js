@@ -9,7 +9,7 @@ module.exports = async function handler(req, res) {
     const caseId = req.query.caseId;
     const updated = await client.from('service_cases').update({ status: 'open', approved_at: new Date().toISOString() }).eq('id', caseId).select('*').single();
     if (updated.error) throw updated.error;
-    const message = await client.from('service_messages').insert({ case_id: caseId, sender_type: 'system', sender_name: '系統', body: '管理員已開通線上客服服務。' });
+    const message = await client.from('service_messages').insert({ case_id: caseId, sender_type: 'system', sender_name: '系統', body: '已開通線上報案系統。' });
     if (message.error) throw message.error;
     json(res, 200, { case: publicCase(updated.data) });
   } catch (error) {

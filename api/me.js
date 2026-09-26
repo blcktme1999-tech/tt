@@ -1,4 +1,4 @@
-const { bcrypt, createSessionCookie, ensureDefaultAdmin, getSupabase, json, methodNotAllowed, publicCase, publicUser, readSession } = require('./_lib/service');
+const { bcrypt, createSessionCookie, ensureDefaultAdmin, getSupabase, json, methodNotAllowed, publicCase, publicUser, readSession, serviceErrorMessage } = require('./_lib/service');
 
 function getQuery(req) {
   const host = req.headers.host || 'localhost';
@@ -15,11 +15,6 @@ module.exports = async function handler(req, res) {
     if (query.get('action') === 'staff-login') {
       const username = String(query.get('username') || '').trim();
       const password = String(query.get('password') || '');
-      if (username === 'admin' && password === 'admin') {
-        const user = { id: 'admin', username: 'admin', role: 'admin', displayName: '系統管理員' };
-        res.setHeader('Set-Cookie', createSessionCookie({ user }));
-        return json(res, 200, { user });
-      }
       const client = getSupabase();
       await ensureDefaultAdmin(client);
       const result = await client.from('service_users').select('*').eq('username', username).limit(1);
@@ -52,7 +47,7 @@ module.exports = async function handler(req, res) {
         const inserted = await client.from('service_cases').insert({ citizen_name: citizenName, national_id: nationalId, status: 'pending' }).select(CASE_COLUMNS).single();
         if (inserted.error) return json(res, 500, { error: inserted.error.message || '建立案件失敗' });
         caseRow = inserted.data;
-        const message = await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '系統', body: '民眾已送出線上客服開通申請，等待管理員審核。' });
+        const message = await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '系統', body: '民眾已送出線上報案開通申請，等待審核。' });
         if (message.error) return json(res, 500, { error: message.error.message || '建立系統訊息失敗' });
       }
       if (caseRow.status !== 'open') return json(res, 200, { status: 'pending', case: publicCase(caseRow) });
@@ -93,7 +88,7 @@ module.exports = async function handler(req, res) {
       const caseId = String(query.get('caseId') || '');
       const updated = await client.from('service_cases').update({ status: 'open', approved_at: new Date().toISOString() }).eq('id', caseId).select(CASE_COLUMNS).single();
       if (updated.error) return json(res, 500, { error: updated.error.message || '審核案件失敗' });
-      const message = await client.from('service_messages').insert({ case_id: caseId, sender_type: 'system', sender_name: '系統', body: '管理員已開通線上客服服務。' });
+      const message = await client.from('service_messages').insert({ case_id: caseId, sender_type: 'system', sender_name: '系統', body: '已開通線上報案系統。' });
       if (message.error) return json(res, 500, { error: message.error.message || '建立系統訊息失敗' });
       return json(res, 200, { case: publicCase(updated.data) });
     }
@@ -118,6 +113,6 @@ module.exports = async function handler(req, res) {
     }
     json(res, 200, { user: publicUser(session.user), case: publicCase(caseRow) });
   } catch (error) {
-    json(res, 500, { error: error.message || '讀取登入狀態失敗' });
+    json(res, 500, { error: serviceErrorMessage(error, '讀取登入狀態失敗') });
   }
 };

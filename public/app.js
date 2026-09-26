@@ -1,1084 +1,869 @@
-const socket = window.io ? window.io() : createDemoSocket();
-let usingDemoData = false;
+'use strict';
 
+// REST is the source of truth, including on hosts without Socket.IO. Never fake
+// an authenticated session, message, upload or call when the server is offline.
 const state = {
-  me: null,
-  currentCase: null,
-  cases: [],
-  recorder: null,
-  recorderCaseId: null,
-  chunks: [],
-  localStream: null,
-  remoteRecordStream: null,
-  autoRecordCaseId: null,
-  peer: null,
-  joinedCall: false,
-  callCaseId: null,
-  publishingLocal: false,
-  agoraClient: null,
-  agoraTracks: [],
-  callRoot: null,
-  remoteSubscriptions: new Set(),
-  casePollTimer: null,
-  messagePollTimer: null,
-  messageIds: new Set()
+  me: null, currentCase: null, cases: [], detailRoot: null, callRoot: null,
+  videoSession: null, mediaError: '', mediaPending: false,
+  conversation: null, viewVersion: 0, caseRevision: 0,
+  workflow: Promise.resolve(), caseLoad: null,
+  casePollTimer: null, messagePollTimer: null
 };
-
-const $ = (selector, root = document) => root.querySelector(selector);
-const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
+// Controller failures also reject public operations. Do not cache those rejects
+// as workflow errors: lastError remains the controller's source of truth.
+const controllerErrors = new WeakSet();
+const IDENTITY_NOTICE = '此瀏覽器目前使用後台身分。請使用另一個瀏覽器設定檔或另一個瀏覽器進行民眾報案，避免共用登入身分。';
+const $ = (selector, root = document) => root?.querySelector(selector) || null;
+const $$ = (selector, root = document) => [...(root?.querySelectorAll(selector) || [])];
+const casePath = (caseId, suffix = '') => `/api/cases/${encodeURIComponent(caseId)}${suffix}`;
+const postOptions = (body) => ({ method: 'POST', body: JSON.stringify(body) });
 
 async function api(path, options = {}) {
   let response;
   try {
     response = await fetch(path, {
-      headers: options.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
-      ...options
+      credentials: 'same-origin', cache: 'no-store', ...options,
+      headers: { 'Content-Type': 'application/json', ...options.headers }
     });
-  } catch (error) {
-    usingDemoData = true;
-    return demoApi(path, options);
+  } catch (_) {
+    throw new Error('無法連線至伺服器，操作尚未確認完成。請檢查網路後重試。');
   }
-
-  const contentType = response.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    usingDemoData = true;
-    return demoApi(path, options);
+  if (!(response.headers.get('content-type') || '').toLowerCase().includes('application/json')) {
+    throw new Error('伺服器未回傳有效 JSON，操作尚未確認完成。請稍後重試。');
   }
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || '請稍後再試');
+  let data;
+  try { data = await response.json(); } catch (_) { throw new Error('伺服器回應格式錯誤，請稍後重試。'); }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('伺服器回應格式錯誤。');
+  if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : '操作失敗，請稍後再試。');
   return data;
 }
 
-function queryPath(path, params) {
-  const search = new URLSearchParams(params);
-  return `${path}?${search.toString()}`;
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }
 
-function createDemoSocket() {
-  const handlers = {};
-  const dispatch = (event, payload) => {
-    (handlers[event] || []).forEach((callback) => callback(payload));
+function formatTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '時間未提供' : date.toLocaleString('zh-TW', { hour12: false });
+}
+
+function displayMessage(value) {
+  const replacements = {
+    '客服訊息紀錄': '案件訊息紀錄',
+    '民眾已送出線上客服開通申請，等待管理員審核。': '民眾已送出線上報案開通申請，等待審核。',
+    '管理員已開通線上客服服務。': '已開通線上報案系統。',
+    '管理員已開通線上客服系統。': '已開通線上報案系統。',
+    '管理員已預先開通線上客服服務。': '已預先開通線上報案系統。',
+    'Agora 房間': '身分證字號', '進入線上客服': '我要視訊報案'
   };
-  return {
-    on(event, callback) {
-      handlers[event] = handlers[event] || [];
-      handlers[event].push(callback);
-    },
-    dispatch,
-    async emit(event, payload) {
-      if (event === 'message:create') {
-        if (!usingDemoData) {
-          try {
-            const { message } = await api(`/api/cases/${payload.caseId}/messages`, {
-              method: 'POST',
-              body: JSON.stringify({ body: payload.body })
-            });
-            dispatch('message:created', message);
-            return;
-          } catch (_error) {
-          }
-        }
-        const db = getDemoDb();
-        const caseItem = db.cases.find((item) => item.id === payload.caseId);
-        if (!caseItem || !String(payload.body || '').trim()) return;
-        const sender = db.session.user || { role: 'citizen', displayName: caseItem.citizenName };
-        const message = {
-          id: demoId(),
-          caseId: caseItem.id,
-          senderType: sender.role === 'admin' ? 'admin' : sender.role === 'agent' ? 'agent' : 'citizen',
-          senderName: sender.displayName || caseItem.citizenName,
-          body: String(payload.body).trim(),
-          createdAt: new Date().toISOString()
-        };
-        db.messages.push(message);
-        setDemoDb(db);
-        dispatch('message:created', message);
-      }
-      if (event === 'call:join') dispatch('call:peer-ready');
-      if (event === 'call:leave') dispatch('call:peer-left');
-    }
-  };
+  return replacements[value] || String(value ?? '');
 }
 
-function demoId() {
-  return `demo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+function errorText(error) {
+  return error?.message || '操作失敗，請稍後再試。';
 }
 
-function getDemoDb() {
-  const saved = localStorage.getItem('cib-demo-db');
-  if (saved) return JSON.parse(saved);
-  const db = {
-    session: {},
-    users: [
-      { id: 'admin', username: 'admin', password: 'admin', role: 'admin', displayName: '系統管理員', createdAt: new Date().toISOString() }
-    ],
-    cases: [
-      { id: 'demo-case-1', citizenName: '測試民眾', agoraChannel: 'A123456789', status: 'pending', createdAt: new Date().toISOString(), approvedAt: null }
-    ],
-    messages: [
-      { id: 'demo-message-1', caseId: 'demo-case-1', senderType: 'system', senderName: '系統', body: '這是 Vercel 靜態測試模式，可測登入、開帳號與審核流程。', createdAt: new Date().toISOString() }
-    ],
-    files: []
-  };
-  setDemoDb(db);
-  return db;
-}
-
-function setDemoDb(db) {
-  localStorage.setItem('cib-demo-db', JSON.stringify(db));
-}
-
-async function demoApi(path, options = {}) {
-  const db = getDemoDb();
-  const method = options.method || 'GET';
-  const url = new URL(path, window.location.origin);
-  const route = url.pathname;
-  const body = options.body instanceof FormData ? options.body : JSON.parse(options.body || '{}');
-
-  if (route === '/api/me' && url.searchParams.get('action') === 'staff-login') {
-    const username = url.searchParams.get('username');
-    const password = url.searchParams.get('password');
-    const user = db.users.find((item) => item.username === username && item.password === password);
-    if (!user) throw new Error('帳號或密碼錯誤');
-    db.session.user = { id: user.id, username: user.username, role: user.role, displayName: user.displayName };
-    setDemoDb(db);
-    return { user: db.session.user };
+function inlineNotice(root, text, slot = 'actionError') {
+  if (!root) return;
+  let notice = $(`[data-slot="${slot}"]`, root);
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.dataset.slot = slot;
+    notice.setAttribute('role', 'status');
+    notice.setAttribute('aria-live', 'polite');
+    root.appendChild(notice);
   }
-
-  if (route === '/api/me' && url.searchParams.get('action') === 'citizen-start') {
-    const citizenName = url.searchParams.get('citizenName');
-    const nationalId = url.searchParams.get('nationalId');
-    let caseItem = db.cases.find((item) => item.citizenName === citizenName && item.agoraChannel === nationalId);
-    if (!caseItem) {
-      caseItem = { id: demoId(), citizenName, agoraChannel: nationalId, status: 'pending', interviewStatus: 'idle', createdAt: new Date().toISOString(), approvedAt: null };
-      db.cases.push(caseItem);
-      db.messages.push({ id: demoId(), caseId: caseItem.id, senderType: 'system', senderName: '系統', body: '民眾已送出線上客服開通申請，等待管理員審核。', createdAt: new Date().toISOString() });
-    }
-    db.session.case = caseItem.status === 'open' ? caseItem : null;
-    setDemoDb(db);
-    return { status: caseItem.status === 'open' ? 'open' : 'pending', case: caseItem };
-  }
-
-  if (route === '/api/me' && url.searchParams.get('action') === 'cases') return { cases: db.cases };
-
-  if (route === '/api/me' && url.searchParams.get('action') === 'create-case') {
-    const citizenName = url.searchParams.get('citizenName');
-    const nationalId = url.searchParams.get('nationalId');
-    let caseItem = db.cases.find((item) => item.citizenName === citizenName && item.agoraChannel === nationalId);
-    if (!caseItem) {
-      caseItem = { id: demoId(), citizenName, agoraChannel: nationalId, status: 'open', interviewStatus: 'idle', createdAt: new Date().toISOString(), approvedAt: new Date().toISOString() };
-      db.cases.push(caseItem);
-    } else {
-      caseItem.status = 'open';
-      caseItem.approvedAt = new Date().toISOString();
-    }
-    setDemoDb(db);
-    return { case: caseItem };
-  }
-
-  if (route === '/api/me' && url.searchParams.get('action') === 'approve-case') {
-    const caseItem = db.cases.find((item) => item.id === url.searchParams.get('caseId'));
-    if (!caseItem) throw new Error('找不到案件');
-    caseItem.status = 'open';
-    caseItem.approvedAt = new Date().toISOString();
-    setDemoDb(db);
-    return { case: caseItem };
-  }
-
-  if (route === '/api/me' && url.searchParams.get('action') === 'statement') {
-    const caseItem = db.cases.find((item) => item.id === url.searchParams.get('caseId'));
-    if (!caseItem) throw new Error('找不到案件');
-    caseItem.interviewStatus = url.searchParams.get('active') === '1' ? 'active' : 'idle';
-    setDemoDb(db);
-    return { case: caseItem };
-  }
-
-  if (route === '/api/me') return { user: db.session.user || null, case: db.session.case || null };
-
-  if ((route === '/api/citizen/start' || route === '/api/citizen-start') && (method === 'POST' || method === 'GET')) {
-    const citizenName = method === 'GET' ? url.searchParams.get('citizenName') : body.citizenName;
-    const nationalId = method === 'GET' ? url.searchParams.get('nationalId') : body.nationalId;
-    let caseItem = db.cases.find((item) => item.citizenName === citizenName && item.agoraChannel === nationalId);
-    if (!caseItem) {
-      caseItem = { id: demoId(), citizenName, agoraChannel: nationalId, status: 'pending', createdAt: new Date().toISOString(), approvedAt: null };
-      db.cases.push(caseItem);
-      db.messages.push({ id: demoId(), caseId: caseItem.id, senderType: 'system', senderName: '系統', body: '民眾已送出線上客服開通申請，等待管理員審核。', createdAt: new Date().toISOString() });
-    }
-    db.session.case = caseItem.status === 'open' ? caseItem : null;
-    setDemoDb(db);
-    return { status: caseItem.status === 'open' ? 'open' : 'pending', case: caseItem };
-  }
-
-  if ((route === '/api/staff/login' || route === '/api/staff-login') && (method === 'POST' || method === 'GET')) {
-    const username = method === 'GET' ? url.searchParams.get('username') : body.username;
-    const password = method === 'GET' ? url.searchParams.get('password') : body.password;
-    const user = db.users.find((item) => item.username === username && item.password === password);
-    if (!user) throw new Error('帳號或密碼錯誤');
-    db.session.user = { id: user.id, username: user.username, role: user.role, displayName: user.displayName };
-    setDemoDb(db);
-    return { user: db.session.user };
-  }
-
-  if (route === '/api/cases' && method === 'POST') {
-    let caseItem = db.cases.find((item) => item.citizenName === body.citizenName && item.agoraChannel === body.nationalId);
-    if (!caseItem) {
-      caseItem = { id: demoId(), citizenName: body.citizenName, agoraChannel: body.nationalId, status: 'open', interviewStatus: 'idle', createdAt: new Date().toISOString(), approvedAt: new Date().toISOString() };
-      db.cases.push(caseItem);
-    } else {
-      caseItem.status = 'open';
-      caseItem.approvedAt = new Date().toISOString();
-    }
-    setDemoDb(db);
-    return { case: caseItem };
-  }
-
-  if (route === '/api/cases') return { cases: db.cases };
-
-  const approveMatch = route.match(/^\/api\/cases\/([^/]+)\/approve$/);
-  if (approveMatch && method === 'POST') {
-    const caseItem = db.cases.find((item) => item.id === approveMatch[1]);
-    if (!caseItem) throw new Error('找不到案件');
-    caseItem.status = 'open';
-    caseItem.approvedAt = new Date().toISOString();
-    db.messages.push({ id: demoId(), caseId: caseItem.id, senderType: 'system', senderName: '系統', body: '管理員已開通線上客服服務。', createdAt: new Date().toISOString() });
-    setDemoDb(db);
-    return { case: caseItem };
-  }
-
-  const statementMatch = route.match(/^\/api\/cases\/([^/]+)\/statement$/);
-  if (statementMatch && method === 'POST') {
-    const caseItem = db.cases.find((item) => item.id === statementMatch[1]);
-    if (!caseItem) throw new Error('找不到案件');
-    caseItem.interviewStatus = body.active ? 'active' : 'idle';
-    setDemoDb(db);
-    return { case: caseItem };
-  }
-
-  const messagesMatch = route.match(/^\/api\/cases\/([^/]+)\/messages$/);
-  if (messagesMatch) return { messages: db.messages.filter((message) => message.caseId === messagesMatch[1]) };
-
-  const filesMatch = route.match(/^\/api\/cases\/([^/]+)\/files$/);
-  if (filesMatch && method === 'POST') {
-    const file = body.get('file') || body.get('video');
-    const saved = { id: demoId(), uploadedBy: db.session.user?.displayName || '民眾', originalName: file?.name || 'demo-file', storedName: '', mimeType: file?.type || 'application/octet-stream', size: file?.size || 0, kind: body.get('kind') || 'upload', createdAt: new Date().toISOString(), url: file ? URL.createObjectURL(file) : '#' };
-    db.files.push({ ...saved, caseId: filesMatch[1] });
-    setDemoDb(db);
-    socket.dispatch?.('file:created', saved);
-    return { file: saved };
-  }
-  if (filesMatch) return { files: db.files.filter((file) => file.caseId === filesMatch[1]) };
-
-  if (route === '/api/users') {
-    if (method === 'POST') {
-      if (db.users.some((user) => user.username === body.username)) throw new Error('帳號已存在');
-      db.users.push({ id: demoId(), username: body.username, password: body.password, role: body.role, displayName: body.displayName, createdAt: new Date().toISOString() });
-      setDemoDb(db);
-      return { ok: true };
-    }
-    return { users: db.users.map(({ password, ...user }) => user) };
-  }
-
-  return { ok: true };
+  notice.className = 'notice error';
+  notice.textContent = text;
+  notice.hidden = !text;
 }
 
 function showNotice(text, type = 'info') {
   const notice = $('#citizenStatus');
+  if (!notice) return;
   notice.textContent = text;
   notice.className = `notice ${type}`;
 }
 
-function reportActionError(error) {
-  window.alert(error.message || '操作失敗，請稍後再試。');
+function reportActionError(error, root = state.detailRoot || $('#staffLogin')) {
+  if (error?.name !== 'AbortError') inlineNotice(root, errorText(error));
 }
 
-async function resetStaffSession() {
-  try {
-    await api('/api/staff/logout', { method: 'POST' });
-  } catch (_error) {
-  }
-  localStorage.removeItem('cib-demo-db');
-  window.location.href = '/admin#admin';
-}
-
-function renderAdminLoadError(error) {
-  const root = $('#adminWorkspace');
-  root.classList.remove('hidden');
-  root.innerHTML = `
-    <div class="surface compact">
-      <h2>後台資料載入失敗</h2>
-      <p class="muted">${escapeHtml(error.message || '請重新登入後再試。')}</p>
-      <button data-action="resetStaffSession" class="danger">重新登入</button>
-    </div>
-  `;
-  $('[data-action="resetStaffSession"]', root).addEventListener('click', resetStaffSession);
+// Selection, device operations, status changes and session changes share one
+// queue. In-flight token/capture operations finish before their root is replaced.
+function enqueueWorkflow(operation) {
+  const result = state.workflow.then(operation);
+  state.workflow = result.catch(() => {});
+  return result;
 }
 
 function activatePanel(panelId) {
   $$('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === panelId));
   $$('.tab-button').forEach((button) => button.classList.toggle('active', button.dataset.panel === panelId));
-  const hashMap = { citizenPanel: 'citizen', staffPanel: 'staff', adminPanel: 'admin' };
-  if (hashMap[panelId]) window.history.replaceState(null, '', `#${hashMap[panelId]}`);
-}
-
-function formatTime(value) {
-  return new Date(value).toLocaleString('zh-TW', { hour12: false });
+  const hash = { citizenPanel: 'citizen', staffPanel: 'staff', adminPanel: 'admin' }[panelId];
+  if (hash) window.history.replaceState(null, '', `#${hash}`);
+  if (panelId === 'citizenPanel' && state.me?.user) showNotice(IDENTITY_NOTICE, 'error');
 }
 
 function caseStatus(caseItem) {
-  if (caseItem.interviewStatus === 'active') return '筆錄中';
-  return caseItem.status === 'open' ? '已開通' : '待審核';
+  if (caseItem.status === 'closed') return '已結案';
+  if (caseItem.status !== 'open') return '待審核';
+  return caseItem.interviewStatus === 'active' ? '筆錄中' : '已開通';
 }
 
-function renderCitizenWorkspace(caseItem) {
-  state.currentCase = caseItem;
-  const root = $('#citizenWorkspace');
-  root.classList.remove('hidden');
-  root.innerHTML = `
-    <div class="case-detail">
-      <div data-slot="caseSummary" class="surface"></div>
-      <div data-slot="conversation" class="surface"></div>
-      <div data-slot="media" class="surface"></div>
-    </div>
-  `;
-  renderCaseDetail(root, caseItem, false);
+function statusClass(caseItem) {
+  return caseItem.status === 'open' && caseItem.interviewStatus === 'active' ? 'active' :
+    ['pending', 'open', 'closed'].includes(caseItem.status) ? caseItem.status : 'pending';
+}
+
+function filterCaseItems(cases, isAdmin, search = '', filter = 'all') {
+  const term = search.trim().toLocaleLowerCase();
+  return cases.filter((item) => (isAdmin || item.status === 'open') &&
+    (!term || [item.citizenName, item.id, item.nationalId, item.agoraChannel]
+      .some((value) => String(value || '').toLocaleLowerCase().includes(term))) &&
+    (filter === 'all' || (filter === 'active' ? item.status === 'open' && item.interviewStatus === 'active' : item.status === filter)));
 }
 
 function renderCaseShell(root, cases, isAdmin) {
-  const template = $('#caseWorkspaceTemplate').content.cloneNode(true);
-  root.innerHTML = '';
-  root.appendChild(template);
-  $('[data-action="refreshCases"]', root).addEventListener('click', loadCases);
+  if (!root) return;
+  if (!$('[data-slot="caseList"]', root)) {
+    const template = $('#caseWorkspaceTemplate');
+    if (!template) throw new Error('案件範本尚未載入。');
+    root.appendChild(template.content.cloneNode(true));
+    $('[data-action="refreshCases"]', root)?.addEventListener('click', () => loadCases().catch((error) => reportActionError(error, root)));
+    $('[data-action="searchCases"]', root)?.addEventListener('input', () => renderCaseList(root, state.cases, isAdmin));
+    $('[data-action="filterCases"]', root)?.addEventListener('change', () => renderCaseList(root, state.cases, isAdmin));
+  }
   renderCaseList(root, cases, isAdmin);
 }
 
 function renderCaseList(root, cases, isAdmin) {
   const list = $('[data-slot="caseList"]', root);
-  list.innerHTML = cases.length ? '' : `<p class="muted">${isAdmin ? '目前沒有待審核案件。' : '目前沒有案件。'}</p>`;
-  cases.forEach((caseItem) => {
+  if (!list) return;
+  const visible = filterCaseItems(cases, isAdmin, $('[data-action="searchCases"]', root)?.value,
+    $('[data-action="filterCases"]', root)?.value || 'all');
+  const count = $('[data-slot="caseCount"]', root);
+  if (count) count.textContent = String(visible.length);
+  const scrollTop = list.scrollTop;
+  list.innerHTML = visible.length ? '' : '<p class="muted">目前沒有符合條件的案件。</p>';
+  visible.forEach((caseItem) => {
     const button = document.createElement('button');
+    button.type = 'button';
     button.className = `case-card ${state.currentCase?.id === caseItem.id ? 'active' : ''}`;
-    button.innerHTML = `
-      <strong>${caseItem.citizenName}</strong>
-      <div class="meta">${caseStatus(caseItem)} · ${formatTime(caseItem.createdAt)}</div>
-    `;
-    button.addEventListener('click', () => {
-      state.currentCase = caseItem;
-      renderCaseList(root, state.cases, isAdmin);
-      renderCaseDetail(root, caseItem, isAdmin);
-    });
+    button.setAttribute('aria-pressed', String(state.currentCase?.id === caseItem.id));
+    button.innerHTML = `<strong>${escapeHtml(caseItem.citizenName)}</strong>
+      <div class="meta"><span class="status ${statusClass(caseItem)}">${caseStatus(caseItem)}</span> · ${escapeHtml(formatTime(caseItem.createdAt))}</div>
+      <div class="meta">${escapeHtml(caseItem.id)}</div>`;
+    button.addEventListener('click', () => selectCase(root, caseItem, isAdmin).catch((error) => reportActionError(error, root)));
     list.appendChild(button);
   });
+  list.scrollTop = scrollTop;
 }
 
-async function openCaseDetail(root, cases, caseItem, isAdmin) {
+function renderAllCaseLists() {
+  renderCaseList($('#staffWorkspace'), state.cases, false);
+  if (state.me?.user?.role === 'admin') renderCaseList($('#adminWorkspace'), state.cases, true);
+}
+
+function isCurrentRoot(caseId, root = state.callRoot) {
+  return Boolean(root?.isConnected && root === state.callRoot && root.dataset.caseId === String(caseId) && state.currentCase?.id === caseId);
+}
+
+function requireOpenRoot(caseId, root) {
+  if (!isCurrentRoot(caseId, root)) throw new Error('案件已切換，請在目前案件重新操作。');
+  if (state.currentCase.status !== 'open') throw new Error('案件尚未開通或已結案，無法使用視訊。');
+}
+
+function selectCase(root, caseItem, isAdmin = false) {
+  return enqueueWorkflow(() => selectCaseNow(root, state.cases.find((item) => item.id === caseItem.id) || caseItem, isAdmin));
+}
+
+async function selectCaseNow(root, caseItem, isAdmin = false) {
+  if (!root?.isConnected) return false;
+  if (state.me?.user && root.id === 'citizenWorkspace') { showNotice(IDENTITY_NOTICE, 'error'); return false; }
+  if (state.currentCase?.id === caseItem.id && state.detailRoot === root) {
+    await applySelectedCase(caseItem);
+    return true;
+  }
+  if (state.videoSession?.hasLocalMedia && !window.confirm('切換案件將關閉我方攝影機與麥克風，並中斷目前視訊。新案件只接收對方視訊，不會自動開啟我方裝置。是否繼續？')) return false;
+  await disconnectCurrent();
+  const previousRoot = state.detailRoot;
+  state.viewVersion += 1;
+  state.conversation = null;
+  clearInterval(state.messagePollTimer);
+  if (previousRoot && previousRoot !== root) {
+    for (const slot of ['caseSummary', 'conversation', 'media']) {
+      const node = $(`[data-slot="${slot}"]`, previousRoot);
+      if (node) { node.replaceChildren(); node.classList.add('hidden'); }
+    }
+  }
   state.currentCase = caseItem;
-  renderCaseList(root, cases, isAdmin);
-  await renderCaseDetail(root, caseItem, isAdmin);
+  state.detailRoot = root;
+  state.mediaError = '';
+  root.classList.remove('hidden');
+  if (root.id === 'citizenWorkspace' && !$('[data-slot="caseSummary"]', root)) {
+    root.innerHTML = '<div class="case-detail"><div data-slot="caseSummary" class="surface"></div><div data-slot="media" class="surface"></div><div data-slot="conversation" class="surface"></div></div>';
+  }
+  renderCaseDetail(root, caseItem, isAdmin);
+  renderAllCaseLists();
+  if (state.me?.user && caseItem.status === 'open') {
+    try { await watchCall(caseItem.id, state.callRoot); } catch (error) { showMediaError(error); }
+  }
+  return true;
 }
 
-async function renderCaseDetail(root, caseItem, isAdmin) {
-  socket.emit('case:join', caseItem.id);
+async function renderCitizenWorkspace(caseItem) {
+  return selectCase($('#citizenWorkspace'), caseItem, false);
+}
+
+function openCaseDetail(root, _cases, caseItem, isAdmin) {
+  return selectCase(root, caseItem, isAdmin);
+}
+
+function renderCaseDetail(root, caseItem, isAdmin) {
   const summary = $('[data-slot="caseSummary"]', root);
   const conversation = $('[data-slot="conversation"]', root);
   const media = $('[data-slot="media"]', root);
-  summary.classList.remove('hidden');
-  conversation.classList.remove('hidden');
-  media.classList.remove('hidden');
-  summary.innerHTML = `
-    <div class="section-heading">
-      <h2>${caseItem.citizenName}</h2>
-      ${isAdmin && caseItem.status === 'pending' ? '<button data-action="approve" class="warning">審核開通</button>' : ''}
-    </div>
+  if (!summary || !conversation || !media) throw new Error('案件工作區尚未準備完成。');
+  for (const node of [summary, conversation, media]) { node.classList.remove('hidden', 'empty-state'); node.dataset.caseId = String(caseItem.id); }
+  summary.innerHTML = `<div class="section-heading"><h2>${escapeHtml(caseItem.citizenName)}</h2>
+    ${isAdmin ? '<button type="button" data-action="approve" class="warning">審核開通</button>' : ''}</div>
     <div class="summary-grid">
-      <div class="summary-box">案件編號<strong>${caseItem.id.slice(0, 8)}</strong></div>
-      <div class="summary-box">Agora 房間<strong>${escapeHtml(caseItem.agoraChannel || caseItem.id.slice(0, 8))}</strong></div>
-      <div class="summary-box">狀態<strong class="status ${caseItem.interviewStatus === 'active' ? 'active' : caseItem.status}">${caseStatus(caseItem)}</strong></div>
-      <div class="summary-box">建立時間<strong>${formatTime(caseItem.createdAt)}</strong></div>
-    </div>
-  `;
-  const approveButton = $('[data-action="approve"]', summary);
-  if (approveButton) {
-    approveButton.addEventListener('click', async () => {
-      await api(queryPath('/api/me', { action: 'approve-case', caseId: caseItem.id }));
-      await loadCases();
+      <div class="summary-box">案件編號<strong>${escapeHtml(caseItem.id)}</strong></div>
+      <div class="summary-box">身分證字號<strong>${escapeHtml(caseItem.nationalId || caseItem.agoraChannel || '未提供')}</strong></div>
+      <div class="summary-box">狀態<strong data-slot="caseStatus"></strong></div>
+      <div class="summary-box">建立時間<strong>${escapeHtml(formatTime(caseItem.createdAt))}</strong></div>
+    </div>`;
+  $('[data-action="approve"]', summary)?.addEventListener('click', (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    enqueueWorkflow(async () => {
+      if (state.detailRoot !== root || state.currentCase?.id !== caseItem.id) return;
+      const data = await api(casePath(caseItem.id, '/approve'), { method: 'POST' });
+      if (!data.case || data.case.id !== caseItem.id) throw new Error('審核結果不完整，請重新整理確認。');
+      state.caseRevision += 1;
+      state.cases = state.cases.map((item) => item.id === caseItem.id ? data.case : item);
+      await applySelectedCase(data.case);
+      renderAllCaseLists();
+      await refreshMessages(caseItem.id);
+    }).catch((error) => reportActionError(error, summary)).finally(() => { button.disabled = false; });
+  });
+  renderConversation(conversation, caseItem);
+  renderMedia(media, caseItem);
+  updateSummary(caseItem);
+}
+
+function updateSummary(caseItem) {
+  const badge = $('[data-slot="caseStatus"]', state.detailRoot);
+  if (badge) { badge.textContent = caseStatus(caseItem); badge.className = `status ${statusClass(caseItem)}`; }
+  const approve = $('[data-action="approve"]', state.detailRoot);
+  if (approve) approve.hidden = caseItem.status !== 'pending';
+}
+
+async function applySelectedCase(caseItem) {
+  if (state.currentCase?.id !== caseItem.id) return;
+  const oldStatus = state.currentCase.status;
+  state.currentCase = caseItem;
+  updateSummary(caseItem);
+  updateConversationControls(state.conversation);
+  if (caseItem.status !== 'open' && state.videoSession?.caseId === caseItem.id) await state.videoSession.disconnect();
+  renderMediaState();
+  // interviewStatus is a badge only, never a reason to select a different case.
+  if (oldStatus !== 'open' && caseItem.status === 'open' && state.me?.user) {
+    try { await watchCall(caseItem.id, state.callRoot); } catch (error) { showMediaError(error); }
+  }
+}
+
+function getVideoSession() {
+  if (!state.videoSession) {
+    if (!window.ReportVideoSession) throw new Error('視訊控制器尚未載入，請重新整理後再試。');
+    state.videoSession = new window.ReportVideoSession({
+      getToken: (caseId) => {
+        requireOpenRoot(caseId, state.callRoot);
+        return api(casePath(caseId, '/agora-token'), { method: 'POST' });
+      },
+      onChange: () => renderMediaState(),
+      onError: (error) => { controllerErrors.add(error); renderMediaState(); }
     });
   }
-  await renderConversation(conversation, caseItem);
-  await renderMedia(media, caseItem, isAdmin);
+  return state.videoSession;
 }
 
-async function renderConversation(root, caseItem) {
-  const { messages } = await api(`/api/cases/${caseItem.id}/messages`);
-  state.messageIds = new Set(messages.map((message) => message.id));
-  root.innerHTML = `
-    <div class="section-heading"><h2>客服訊息紀錄</h2></div>
-    <div class="chat-log"></div>
-    <form class="message-form">
-      <textarea name="body" placeholder="輸入訊息" required></textarea>
-      <button type="submit">送出</button>
-    </form>
-  `;
-  const log = $('.chat-log', root);
-  messages.forEach((message) => appendMessage(log, message));
-  $('.message-form', root).addEventListener('submit', (event) => {
-    event.preventDefault();
-    const body = event.currentTarget.body.value.trim();
-    if (!body) return;
-    postMessage(caseItem.id, body).catch(reportActionError);
-    event.currentTarget.reset();
-  });
-  startMessagePolling(caseItem.id);
+function showMediaError(error) {
+  if (error?.name === 'AbortError') return;
+  if (!controllerErrors.has(error)) state.mediaError = errorText(error);
+  renderMediaState();
 }
 
-async function postMessage(caseId, body) {
-  const { message } = await api(`/api/cases/${caseId}/messages`, {
-    method: 'POST',
-    body: JSON.stringify({ body })
-  });
-  const log = $('.panel.active .chat-log');
-  if (log && message && !state.messageIds.has(message.id)) {
-    state.messageIds.add(message.id);
-    appendMessage(log, message);
+function renderMedia(root, caseItem) {
+  state.callRoot = root;
+  root.dataset.caseId = String(caseItem.id);
+  const staff = Boolean(state.me?.user);
+  root.innerHTML = `<div class="section-heading"><h2>視訊筆錄</h2></div>
+    <div class="media-grid"><div class="media-controls">
+      <div data-slot="videoGrid" class="video-grid video-pair">
+        <div class="video-tile"><div data-slot="localVideoSlot" class="video-slot"><div data-slot="localPlayer" class="video-player"></div></div><div data-slot="localLabel" class="video-label">我方（未開啟鏡頭／麥克風）</div></div>
+        <div data-slot="remotePlaceholder" class="video-tile"><div class="video-slot video-placeholder"><p>${staff ? '等待民眾傳送視訊' : '等待客服加入'}</p></div><div class="video-label">對方（尚未傳送）</div></div>
+      </div>
+      <p data-slot="callStatus" class="call-status" role="status" aria-live="polite"></p>
+      <p data-slot="recordingNotice" class="recording-notice">錄影尚未啟用</p>
+      <p class="muted">本頁不會自動錄影；錄影功能須另行確認並取得明確同意後才可啟用。</p>
+      <div data-slot="mediaError" class="notice error" role="status" aria-live="polite" hidden></div>
+      <div class="button-row">
+        ${staff ? '' : '<button type="button" data-action="joinCall" class="warning">開始視訊報案</button><button type="button" data-action="leaveCall" class="danger">結束筆錄</button>'}
+        <button type="button" data-action="toggleVideo" class="secondary" aria-pressed="false">開啟鏡頭</button>
+        <button type="button" data-action="toggleAudio" class="secondary" aria-pressed="false">開啟麥克風</button>
+        <button type="button" data-action="retryMedia" class="secondary" hidden>重試視訊</button>
+        <button type="button" data-action="resumeAudio" class="secondary">播放聲音</button>
+      </div>
+    </div></div>`;
+  const mediaAction = (operation) => runMediaAction(caseItem.id, root, operation).catch(showMediaError);
+  $('[data-action="joinCall"]', root)?.addEventListener('click', () => mediaAction(() => joinCall(caseItem.id, true, false, root)));
+  $('[data-action="leaveCall"]', root)?.addEventListener('click', () => mediaAction(() => leaveCall(caseItem.id, true)));
+  for (const [action, kind] of [['toggleVideo', 'video'], ['toggleAudio', 'audio']]) {
+    $(`[data-action="${action}"]`, root).addEventListener('click', () => mediaAction(async () => {
+      const session = getVideoSession();
+      const enabled = !session.tracks.has(kind);
+      if (enabled) await session.connect(caseItem.id, root);
+      await session.setDevice(kind, enabled);
+      if (!staff) await updateStatementStatus(caseItem.id, session.hasLocalMedia);
+    }));
   }
+  $('[data-action="retryMedia"]', root).addEventListener('click', () => mediaAction(() => staff
+    ? watchCall(caseItem.id, root) : joinCall(caseItem.id, true, false, root)));
+  $('[data-action="resumeAudio"]', root).addEventListener('click', () => {
+    if (!isCurrentRoot(caseItem.id, root)) return;
+    // Do not queue: audio.play() must execute inside this user gesture.
+    const session = state.videoSession;
+    if (!session) return;
+    session.resumeAudio().catch(showMediaError);
+  });
+  renderMediaState();
+}
+
+function renderMediaState() {
+  const root = state.callRoot;
+  if (!isCurrentRoot(state.currentCase?.id, root)) return;
+  const session = state.videoSession;
+  const same = session?.caseId === state.currentCase.id;
+  const connected = Boolean(same && session.connected);
+  const busy = state.mediaPending || Boolean(session?.busy);
+  const open = state.currentCase.status === 'open';
+  // Failed connect cleans caseId/root before reporting its error.
+  const error = state.mediaError || ((same || session?.caseId === null) && session.lastError ? errorText(session.lastError) : '');
+  const placeholder = $('[data-slot="remotePlaceholder"]', root);
+  // CSS's .video-tile display rules must not make a hidden waiting tile visible.
+  placeholder?.classList.toggle('hidden', Boolean(placeholder.hidden));
+  const status = $('[data-slot="callStatus"]', root);
+  if (status) status.textContent = !open ? '案件尚未開通或已結案，視訊未連線。' :
+    session?.status === 'disconnecting' ? '正在中斷連線…' :
+    same && session.status === 'reconnecting' ? '網路暫時中斷，正在重新連線…' :
+    same && session.status === 'connecting' ? '視訊連線中…' :
+    error ? (connected ? '連線仍在，部分功能發生錯誤；請查看下方說明。' : '視訊連線失敗，請重試。') :
+    connected ? (placeholder?.hidden ? '已連線，正在接收對方視訊／語音。' : '已連線，等待對方視訊／語音。') : '尚未連線。';
+  const recording = $('[data-slot="recordingNotice"]', root);
+  if (recording) recording.textContent = connected ? '視訊筆錄進行中｜錄影尚未啟用' : '錄影尚未啟用';
+  const errorNode = $('[data-slot="mediaError"]', root);
+  if (errorNode) { errorNode.textContent = error ? `${error} 請確認瀏覽器權限後重試；裝置可分別開關。` : ''; errorNode.hidden = !error; }
+  for (const [action, kind, label] of [['toggleVideo', 'video', '鏡頭'], ['toggleAudio', 'audio', '麥克風']]) {
+    const button = $(`[data-action="${action}"]`, root);
+    const enabled = Boolean(same && session.tracks.has(kind));
+    if (button) { button.textContent = `${enabled ? '關閉' : '開啟'}${label}`; button.setAttribute('aria-pressed', String(enabled)); button.disabled = busy || !open; }
+  }
+  const start = $('[data-action="joinCall"]', root);
+  if (start) start.disabled = busy || !open || Boolean(connected && session.tracks.has('video') && session.tracks.has('audio'));
+  const stop = $('[data-action="leaveCall"]', root);
+  if (stop) stop.disabled = busy || !(connected || state.currentCase.interviewStatus === 'active');
+  const retry = $('[data-action="retryMedia"]', root);
+  if (retry) { retry.hidden = !error; retry.disabled = busy || !open; }
+  const audio = $('[data-action="resumeAudio"]', root);
+  if (audio) { audio.disabled = !connected; audio.textContent = session?.audioBlocked ? '播放聲音（瀏覽器已阻擋）' : '播放聲音'; }
+  const label = $('[data-slot="localLabel"]', root);
+  if (label) label.textContent = `我方（鏡頭${same && session.tracks.has('video') ? '已開啟' : '未開啟'}／麥克風${same && session.tracks.has('audio') ? '已開啟' : '未開啟'}）`;
+}
+
+function runMediaAction(caseId, root, operation) {
+  return enqueueWorkflow(async () => {
+    requireOpenRoot(caseId, root);
+    state.mediaPending = true;
+    renderMediaState();
+    try { return await operation(); } finally { state.mediaPending = false; renderMediaState(); }
+  });
+}
+
+async function watchCall(caseId, root = state.callRoot) {
+  requireOpenRoot(caseId, root);
+  await getVideoSession().connect(caseId, root);
+}
+
+// Compatibility wrappers; all media ownership stays in ReportVideoSession.
+async function joinCall(caseId, markStatement = false, _unused = false, root = state.callRoot) {
+  requireOpenRoot(caseId, root);
+  const session = getVideoSession();
+  await session.connect(caseId, root);
+  let mediaFailure;
+  try { await session.publishBoth(); } catch (error) { mediaFailure = error; }
+  if (markStatement && !state.me?.user && session.hasLocalMedia) {
+    try { await updateStatementStatus(caseId, true); } catch (error) {
+      if (!mediaFailure) throw error;
+      showMediaError(error);
+    }
+  }
+  if (mediaFailure) throw mediaFailure;
+}
+
+async function leaveCall(caseId, markStatement = false) {
+  if (state.videoSession?.caseId === caseId) await state.videoSession.disconnect();
+  if (markStatement && !state.me?.user) await updateStatementStatus(caseId, false);
+  state.mediaError = '';
+  renderMediaState();
+}
+
+async function disconnectCurrent() {
+  const caseId = state.currentCase?.id;
+  const citizenActive = !state.me?.user && state.currentCase?.status === 'open' &&
+    (state.videoSession?.connected || state.currentCase?.interviewStatus === 'active');
+  if (state.videoSession) await state.videoSession.disconnect();
+  if (caseId && citizenActive) await updateStatementStatus(caseId, false);
+}
+
+async function updateStatementStatus(caseId, active) {
+  const data = await api(casePath(caseId, '/statement'), postOptions({ active }));
+  if (!data.case || data.case.id !== caseId) throw new Error('筆錄狀態更新結果不完整，請重試。');
+  state.caseRevision += 1;
+  if (state.currentCase?.id === caseId) {
+    state.currentCase = data.case;
+    updateSummary(data.case);
+    renderMediaState();
+  }
+}
+
+function validConversation(context) {
+  return Boolean(context && context === state.conversation && context.version === state.viewVersion &&
+    context.root.isConnected && context.root.dataset.caseId === String(context.caseId) && state.currentCase?.id === context.caseId);
+}
+
+function renderConversation(root, caseItem) {
+  root.innerHTML = `<div class="section-heading"><h2>案件訊息紀錄</h2></div>
+    <div class="chat-log" role="log" aria-label="案件訊息與附件" aria-live="polite" style="overflow-anchor:none"></div>
+    <div data-slot="conversationPollError" class="notice error" role="status" hidden></div>
+    <form class="message-form"><textarea name="body" placeholder="輸入訊息" aria-label="訊息" required></textarea><button type="submit">送出</button></form>
+    <form class="upload-form stacked-form"><label>上傳資料（每個檔案最多 3 MiB）<input name="file" type="file" required></label><button type="submit">上傳資料</button></form>
+    <p data-slot="uploadStatus" class="muted"></p>`;
+  const context = { caseId: caseItem.id, version: state.viewVersion, root, events: new Map(), nodes: new Map(), polling: null, sending: false, uploading: false };
+  state.conversation = context;
+  $('.message-form', root).addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!validConversation(context) || context.sending) return;
+    const form = event.currentTarget;
+    const input = form.elements.namedItem('body');
+    const original = input.value;
+    if (!original.trim()) return;
+    context.sending = true;
+    updateConversationControls(context);
+    inlineNotice(form, '');
+    try {
+      await postMessage(caseItem.id, original.trim(), context);
+      if (validConversation(context) && input.value === original) input.value = '';
+    } catch (error) { if (validConversation(context)) reportActionError(error, form); }
+    finally { context.sending = false; updateConversationControls(context); }
+  });
+  $('.upload-form', root).addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!validConversation(context) || context.uploading || state.currentCase.status !== 'open') return;
+    const form = event.currentTarget;
+    const input = form.elements.namedItem('file');
+    const file = input.files[0];
+    if (!file) return;
+    context.uploading = true;
+    updateConversationControls(context);
+    inlineNotice(form, '');
+    try {
+      await uploadVideo(caseItem.id, file, file.name, 'upload', context);
+      if (validConversation(context) && input.files[0] === file) form.reset();
+    } catch (error) { if (validConversation(context)) reportActionError(error, form); }
+    finally { context.uploading = false; updateConversationControls(context); }
+  });
+  updateConversationControls(context);
+  startMessagePolling(caseItem.id);
+  void refreshMessages(caseItem.id);
+}
+
+function updateConversationControls(context) {
+  if (!validConversation(context)) return;
+  const open = state.currentCase.status === 'open';
+  const submit = $('.message-form button[type="submit"]', context.root);
+  if (submit) { submit.disabled = context.sending; submit.textContent = context.sending ? '傳送中…' : '送出'; }
+  const upload = $('.upload-form button[type="submit"]', context.root);
+  if (upload) { upload.disabled = context.uploading || !open; upload.textContent = context.uploading ? '上傳中…' : '上傳資料'; }
+  const input = $('.upload-form input', context.root);
+  if (input) input.disabled = context.uploading || !open;
+  const status = $('[data-slot="uploadStatus"]', context.root);
+  if (status) status.textContent = open ? '附件會與訊息依時間排列；單檔上限 3 MiB（配合平台請求限制）。' : '案件開通後才可上傳或讀取附件；訊息仍可查看。';
+}
+
+function eventKey(kind, item) { return `${kind}:${item.id}`; }
+
+function mergeConversation(context, messages = [], files = []) {
+  if (!validConversation(context)) return;
+  let changed = false;
+  for (const [kind, items] of [['message', messages], ['file', files]]) {
+    for (const item of items) {
+      if (!item?.id || (item.caseId && item.caseId !== context.caseId)) continue;
+      const key = eventKey(kind, item);
+      if (context.events.has(key)) continue;
+      context.events.set(key, { key, kind, item });
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  const log = $('.chat-log', context.root);
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 64;
+  const viewportTop = log.getBoundingClientRect().top;
+  const anchor = [...log.children].find((node) => node.getBoundingClientRect().bottom > viewportTop);
+  const anchorTop = anchor?.getBoundingClientRect().top;
+  const scrollTop = log.scrollTop;
+  const events = [...context.events.values()].sort((a, b) =>
+    ((Date.parse(a.item.createdAt) || 0) - (Date.parse(b.item.createdAt) || 0)) || a.key.localeCompare(b.key));
+  events.forEach((event, index) => {
+    let node = context.nodes.get(event.key);
+    if (!node) {
+      node = event.kind === 'message' ? messageElement(event.item) : fileElement(event.item);
+      context.nodes.set(event.key, node);
+    }
+    if (log.children[index] !== node) log.insertBefore(node, log.children[index] || null);
+  });
+  if (atBottom) log.scrollTop = log.scrollHeight;
+  else log.scrollTop = anchor ? scrollTop + anchor.getBoundingClientRect().top - anchorTop : scrollTop;
+}
+
+function messageElement(message) {
+  const mine = state.me?.user ? ['agent', 'admin'].includes(message.senderType) : message.senderType === 'citizen';
+  const item = document.createElement('div');
+  item.className = `message ${mine ? 'mine' : ''} ${message.senderType === 'system' ? 'system' : ''}`;
+  item.innerHTML = `<small>${escapeHtml(message.senderName)} · ${escapeHtml(formatTime(message.createdAt))}</small><div>${escapeHtml(displayMessage(message.body))}</div>`;
+  return item;
+}
+
+function safeFileUrl(value) {
+  if (typeof value !== 'string' || !value.trim() || value.trim().startsWith('#')) return null;
+  try {
+    const url = new URL(value, window.location.origin);
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null;
+  } catch (_) { return null; }
+}
+
+function formatSize(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size < 0) return '大小未提供';
+  return size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(2)} MiB` : size >= 1024 ? `${(size / 1024).toFixed(1)} KiB` : `${size} B`;
+}
+
+function fileElement(file) {
+  const item = document.createElement('div');
+  item.className = 'message file-message file-item';
+  const url = safeFileUrl(file.url);
+  const name = escapeHtml(file.originalName || '附件');
+  item.innerHTML = `${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${name}</a>` : `<strong>${name}</strong><span>（連結無效，無法開啟）</span>`}
+    <div class="muted">${escapeHtml(formatSize(file.size))} · 上傳者：${escapeHtml(file.uploadedBy || '未提供')} · ${escapeHtml(formatTime(file.createdAt))}</div>`;
+  return item;
+}
+
+async function postMessage(caseId, body, context = state.conversation) {
+  if (!validConversation(context) || context.caseId !== caseId) throw new Error('案件已切換，訊息尚未傳送。');
+  const { message } = await api(casePath(caseId, '/messages'), postOptions({ body }));
+  if (!message?.id) throw new Error('訊息傳送結果不完整，請確認紀錄後再重試。');
+  mergeConversation(context, [message]);
 }
 
 function startMessagePolling(caseId) {
   clearInterval(state.messagePollTimer);
-  state.messagePollTimer = setInterval(() => refreshMessages(caseId).catch(() => {}), 2500);
+  state.messagePollTimer = setInterval(() => { void refreshMessages(caseId); }, 2500);
 }
 
-async function refreshMessages(caseId) {
-  if (state.currentCase?.id !== caseId) return;
-  const log = $('.panel.active .chat-log');
-  if (!log) return;
-  const { messages } = await api(`/api/cases/${caseId}/messages`);
-  messages.forEach((message) => {
-    if (state.messageIds.has(message.id)) return;
-    state.messageIds.add(message.id);
-    appendMessage(log, message);
-  });
-}
-
-function appendMessage(log, message) {
-  const mine = state.me?.user
-    ? ['agent', 'admin'].includes(message.senderType)
-    : message.senderType === 'citizen';
-  const item = document.createElement('div');
-  item.className = `message ${mine ? 'mine' : ''} ${message.senderType === 'system' ? 'system' : ''}`;
-  item.innerHTML = `<small>${message.senderName} · ${formatTime(message.createdAt)}</small><div>${escapeHtml(message.body)}</div>`;
-  log.appendChild(item);
-  log.scrollTop = log.scrollHeight;
-}
-
-async function renderMedia(root, caseItem, isAdmin) {
-  const { files } = await api(`/api/cases/${caseItem.id}/files`);
-  const isStaffUser = Boolean(state.me?.user);
-  const callButtons = isStaffUser
-    ? '<button data-action="joinCall" class="warning">開啟我方視訊/麥克風</button><button data-action="leaveCall" class="danger">停止接收</button>'
-    : '<button data-action="joinCall" class="warning">製作筆錄</button><button data-action="leaveCall" class="danger">結束筆錄</button>';
-  root.innerHTML = `
-    <div class="section-heading"><h2>視訊筆錄與影片</h2></div>
-    <div class="media-grid">
-      <div class="media-controls">
-        <div class="video-pair">
-          <div data-slot="localVideoSlot" class="video-slot"><video data-slot="localVideo" muted playsinline></video></div>
-          <div data-slot="remoteVideoSlot" class="video-slot"><video data-slot="remoteVideo" playsinline></video></div>
-        </div>
-        <div class="button-row">
-          ${callButtons}
-        </div>
-        <form class="upload-form stacked-form">
-          <label>上傳資料<input name="file" type="file" required></label>
-          <button type="submit">上傳資料</button>
-        </form>
-      </div>
-      <div>
-        <h3>影片紀錄</h3>
-        <div class="file-list"></div>
-      </div>
-    </div>
-  `;
-  files.forEach((file) => appendFile($('.file-list', root), file));
-  $('[data-action="joinCall"]', root).addEventListener('click', () => joinCall(caseItem.id, !isStaffUser, isStaffUser, root).catch(reportActionError));
-  $('[data-action="leaveCall"]', root).addEventListener('click', () => leaveCall(caseItem.id, !isStaffUser, isStaffUser, root));
-  $('.upload-form', root).addEventListener('submit', async (event) => {
-    event.preventDefault();
-    try {
-      const file = event.currentTarget.file.files[0];
-      await uploadVideo(caseItem.id, file, file.name, 'upload');
-      event.currentTarget.reset();
-    } catch (error) {
-      reportActionError(error);
-    }
-  });
-  if (isStaffUser && caseItem.interviewStatus === 'active') {
-    setTimeout(() => watchCall(caseItem.id, root).catch(reportActionError), 0);
-  }
-}
-
-function appendFile(list, file) {
-  const item = document.createElement('div');
-  item.className = 'file-item';
-  item.innerHTML = `
-    <a href="${file.url}" target="_blank" rel="noreferrer">${escapeHtml(file.originalName)}</a>
-    <div class="muted">${file.kind === 'recording' ? '錄製筆錄' : '上傳資料'} · ${escapeHtml(file.uploadedBy)} · ${formatTime(file.createdAt)}</div>
-  `;
-  list.prepend(item);
-}
-
-async function startCamera() {
-  if (!navigator.mediaDevices?.getUserMedia) throw new Error('此瀏覽器或網址不支援鏡頭 API，請使用 HTTPS 或 localhost 測試。');
-  state.localStream = await getCameraStream();
-  const localVideo = $('[data-slot="localVideo"]', state.callRoot || document);
-  if (localVideo) localVideo.srcObject = state.localStream;
-  await localVideo?.play().catch(() => {});
-}
-
-async function getCameraStream() {
-  try {
-    return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-  } catch (error) {
-    if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-      try {
-        return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      } catch (videoOnlyError) {
-        if (usingDemoData) return createDemoVideoStream();
-        throw new Error('找不到可用的攝影機。請確認裝置已接上，或改用上傳資料。');
-      }
-    }
-    if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') throw new Error('瀏覽器未允許使用攝影機或麥克風，請到網址列左側權限設定開啟。');
-    if (error.name === 'NotReadableError') throw new Error('攝影機目前被其他程式占用，請關閉其他視訊軟體後再試。');
-    throw error;
-  }
-}
-
-function createDemoVideoStream() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 960;
-  canvas.height = 540;
-  const context = canvas.getContext('2d');
-  let frame = 0;
-  const draw = () => {
-    frame += 1;
-    const hue = (frame * 2) % 360;
-    context.fillStyle = `hsl(${hue} 55% 28%)`;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    context.font = '42px sans-serif';
-    context.fillText('視訊筆錄測試畫面', 280, 250);
-    context.font = '24px sans-serif';
-    context.fillText(new Date().toLocaleString('zh-TW'), 350, 300);
-    requestAnimationFrame(draw);
+function refreshMessages(caseId) {
+  const context = state.conversation;
+  if (!validConversation(context) || context.caseId !== caseId) return Promise.resolve();
+  if (context.polling) return context.polling;
+  const includeFiles = state.currentCase.status === 'open';
+  const request = async () => {
+    const results = await Promise.allSettled([
+      api(casePath(caseId, '/messages')),
+      includeFiles ? api(casePath(caseId, '/files')) : Promise.resolve({ files: [] })
+    ]);
+    if (!validConversation(context)) return;
+    const errors = [];
+    const arrays = results.map((result, index) => {
+      if (result.status === 'rejected') { errors.push(errorText(result.reason)); return []; }
+      const items = result.value[index === 0 ? 'messages' : 'files'];
+      if (!Array.isArray(items)) { errors.push('訊息或附件回應格式錯誤。'); return []; }
+      return items;
+    });
+    mergeConversation(context, arrays[0], arrays[1]);
+    inlineNotice(context.root, [...new Set(errors)].join('；'), 'conversationPollError');
   };
-  draw();
-  return canvas.captureStream(24);
-}
-
-async function startRecording() {
-  if (!state.localStream) await startCamera();
-  startRecordingFromStream(state.localStream);
-}
-
-function startRecordingFromStream(stream) {
-  if (!window.MediaRecorder) throw new Error('此瀏覽器不支援 MediaRecorder 錄影 API。');
-  if (!stream) throw new Error('沒有可錄製的視訊來源。');
-  if (state.recorder && state.recorder.state !== 'inactive') return;
-  state.chunks = [];
-  const options = MediaRecorder.isTypeSupported('video/webm') ? { mimeType: 'video/webm' } : undefined;
-  state.recorder = new MediaRecorder(stream, options);
-  state.recorder.ondataavailable = (event) => event.data.size && state.chunks.push(event.data);
-  state.recorder.start();
-}
-
-function startRemoteElementRecording(caseId) {
-  if (state.recorder && state.recorder.state !== 'inactive') return;
-  const root = state.callRoot || document;
-  const remoteVideo = $('[data-slot="remoteVideoSlot"] video', root) || $('[data-slot="remoteVideo"]', root);
-  const stream = remoteVideo?.captureStream?.() || remoteVideo?.mozCaptureStream?.();
-  if (!stream) throw new Error('此瀏覽器不支援自動錄製遠端視訊畫面。');
-  if (!stream.getVideoTracks().length) throw new Error('遠端視訊尚未出現，請稍後再試。');
-  state.remoteRecordStream = stream;
-  state.recorderCaseId = caseId;
-  startRecordingFromStream(stream);
-}
-
-function tryStartRemoteElementRecording(caseId) {
-  try {
-    startRemoteElementRecording(caseId);
-  } catch (error) {
-    if (!String(error.message || '').includes('遠端視訊尚未出現')) reportActionError(error);
-  }
-}
-
-function stopRecording(caseId) {
-  if (!state.recorder || state.recorder.state === 'inactive') return;
-  state.recorder.onstop = async () => {
-    const blob = new Blob(state.chunks, { type: state.recorder.mimeType || 'video/webm' });
-    state.recorderCaseId = null;
-    uploadVideo(caseId, blob, `video-statement-${Date.now()}.webm`, 'recording').catch(reportActionError);
-  };
-  state.recorder.stop();
+  context.polling = request().catch((error) => {
+    if (validConversation(context)) inlineNotice(context.root, errorText(error), 'conversationPollError');
+  }).finally(() => { context.polling = null; });
+  return context.polling;
 }
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error || new Error('讀取檔案失敗'));
+    reader.onerror = () => reject(reader.error || new Error('讀取檔案失敗。'));
+    reader.onabort = () => reject(new Error('讀取檔案已取消。'));
     reader.readAsDataURL(file);
   });
 }
 
-async function uploadVideo(caseId, file, fileName, kind) {
+async function uploadVideo(caseId, file, fileName, _kind = 'upload', context = state.conversation) {
+  if (!file || !Number.isFinite(file.size) || file.size > MAX_UPLOAD_BYTES) throw new Error('單檔上限為 3 MiB；請縮小檔案後再上傳（平台請求大小限制）。');
+  if (!file.size) throw new Error('不能上傳空白檔案。');
+  if (!validConversation(context) || context.caseId !== caseId || state.currentCase.status !== 'open') throw new Error('案件尚未開通或已切換，無法上傳。');
   const dataUrl = await readFileAsDataUrl(file);
-  const { file: saved } = await api(`/api/cases/${caseId}/files`, {
-    method: 'POST',
-    body: JSON.stringify({
-      dataUrl,
-      fileName,
-      mimeType: file.type || 'application/octet-stream',
-      size: file.size || 0,
-      kind
-    })
-  });
-  const list = $('.panel.active .file-list');
-  if (list && saved) appendFile(list, saved);
-}
-
-async function updateStatementStatus(caseId, active) {
-  const { case: caseItem } = await api(queryPath('/api/me', { action: 'statement', caseId, active: active ? '1' : '0' }));
-  state.currentCase = caseItem || state.currentCase;
-}
-
-async function joinCall(caseId, markStatement = false, autoRecordRemote = false, root = null) {
-  state.callRoot = root || state.callRoot || document;
-  if (usingDemoData) {
-    state.joinedCall = true;
-    state.callCaseId = caseId;
-    state.publishingLocal = true;
-    state.autoRecordCaseId = autoRecordRemote ? caseId : null;
-    if (!state.localStream) await startCamera();
-    const remoteVideo = $('[data-slot="remoteVideo"]', state.callRoot);
-    if (remoteVideo) {
-      remoteVideo.srcObject = state.localStream;
-      await remoteVideo.play().catch(() => {});
-    }
-    if (markStatement) await updateStatementStatus(caseId, true);
-    if (autoRecordRemote) tryStartRemoteElementRecording(caseId);
-    socket.emit('call:join', caseId);
-    return;
-  }
-
-  if (!window.AgoraRTC) throw new Error('Agora SDK 尚未載入，請重新整理後再試。');
-  if (state.agoraClient && state.callCaseId === caseId && !state.publishingLocal) {
-    await publishLocalTracks(caseId, markStatement, autoRecordRemote);
-    return;
-  }
-  await leaveCall(caseId, false, false, state.callRoot);
-  state.joinedCall = true;
-  state.callCaseId = caseId;
-  state.publishingLocal = true;
-  state.autoRecordCaseId = autoRecordRemote ? caseId : null;
-  const session = await api(`/api/cases/${caseId}/agora-token`, { method: 'POST' });
-  const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-  state.agoraClient = client;
-  state.remoteSubscriptions = new Set();
-  const localVideoSlot = $('[data-slot="localVideoSlot"]', state.callRoot);
-  const remoteVideoSlot = $('[data-slot="remoteVideoSlot"]', state.callRoot);
-
-  client.on('user-published', async (user, mediaType) => {
-    await subscribeRemoteUser(client, user, mediaType, remoteVideoSlot);
-  });
-  client.on('user-unpublished', (_user, mediaType) => {
-    if (mediaType === 'video') remoteVideoSlot.innerHTML = '<video data-slot="remoteVideo" playsinline></video>';
-  });
-
-  await client.join(session.appId, session.channelName, session.token, session.uid);
-  await subscribeRemoteUsers(client, remoteVideoSlot);
-  const tracks = await createAgoraTracks();
-  state.agoraTracks = tracks;
-  localVideoSlot.innerHTML = '';
-  tracks.find((track) => track.trackMediaType === 'video')?.play(localVideoSlot);
-  await client.publish(tracks);
-  await subscribeRemoteUsers(client, remoteVideoSlot);
-  setTimeout(() => subscribeRemoteUsers(client, remoteVideoSlot).catch(() => {}), 1000);
-  setTimeout(() => subscribeRemoteUsers(client, remoteVideoSlot).catch(() => {}), 3000);
-  state.joinedCall = true;
-  state.callCaseId = caseId;
-  state.publishingLocal = true;
-  if (markStatement) await updateStatementStatus(caseId, true);
-  if (autoRecordRemote) tryStartRemoteElementRecording(caseId);
-  socket.emit('call:join', caseId);
-}
-
-async function publishLocalTracks(caseId, markStatement = false, autoRecordRemote = false) {
-  const localVideoSlot = $('[data-slot="localVideoSlot"]', state.callRoot || document);
-  const tracks = await createAgoraTracks();
-  state.agoraTracks = tracks;
-  state.publishingLocal = true;
-  state.autoRecordCaseId = autoRecordRemote ? caseId : null;
-  if (localVideoSlot) {
-    localVideoSlot.innerHTML = '';
-    tracks.find((track) => track.trackMediaType === 'video')?.play(localVideoSlot);
-  }
-  await state.agoraClient.publish(tracks);
-  if (markStatement) await updateStatementStatus(caseId, true);
-  if (autoRecordRemote) tryStartRemoteElementRecording(caseId);
-  socket.emit('call:join', caseId);
-}
-
-async function watchCall(caseId, root = null) {
-  if (!state.me?.user) return;
-  if (state.joinedCall && state.callCaseId === caseId) return;
-  state.callRoot = root || state.callRoot || document;
-  state.autoRecordCaseId = null;
-  if (usingDemoData) return;
-  if (!window.AgoraRTC) throw new Error('Agora SDK 尚未載入，請重新整理後再試。');
-  await leaveCall(caseId, false, false, state.callRoot);
-  state.joinedCall = true;
-  state.callCaseId = caseId;
-  state.publishingLocal = false;
-  state.autoRecordCaseId = null;
-  const session = await api(`/api/cases/${caseId}/agora-token`, { method: 'POST' });
-  const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-  state.agoraClient = client;
-  state.remoteSubscriptions = new Set();
-  const remoteVideoSlot = $('[data-slot="remoteVideoSlot"]', state.callRoot);
-  client.on('user-published', async (user, mediaType) => {
-    await subscribeRemoteUser(client, user, mediaType, remoteVideoSlot);
-  });
-  client.on('user-unpublished', (_user, mediaType) => {
-    if (mediaType === 'video') remoteVideoSlot.innerHTML = '<video data-slot="remoteVideo" playsinline></video>';
-  });
-  await client.join(session.appId, session.channelName, session.token, session.uid);
-  await subscribeRemoteUsers(client, remoteVideoSlot);
-  setTimeout(() => subscribeRemoteUsers(client, remoteVideoSlot).catch(() => {}), 1000);
-  setTimeout(() => subscribeRemoteUsers(client, remoteVideoSlot).catch(() => {}), 3000);
-}
-
-async function subscribeRemoteUsers(client, remoteVideoSlot) {
-  await Promise.all((client.remoteUsers || []).map(async (user) => {
-    if (user.hasVideo) await subscribeRemoteUser(client, user, 'video', remoteVideoSlot);
-    if (user.hasAudio) await subscribeRemoteUser(client, user, 'audio', remoteVideoSlot);
+  if (!validConversation(context) || state.currentCase.status !== 'open') throw new Error('案件已切換或無法上傳，檔案尚未送出。');
+  const { file: saved } = await api(casePath(caseId, '/files'), postOptions({
+    dataUrl, fileName, mimeType: file.type || 'application/octet-stream', size: file.size, kind: 'upload'
   }));
+  if (!saved?.id) throw new Error('上傳結果不完整，請確認附件紀錄後再重試。');
+  mergeConversation(context, [], [saved]);
 }
 
-async function subscribeRemoteUser(client, user, mediaType, remoteVideoSlot) {
-  const key = `${user.uid}:${mediaType}`;
-  if (state.remoteSubscriptions.has(key)) return;
-  await client.subscribe(user, mediaType);
-  state.remoteSubscriptions.add(key);
-  if (mediaType === 'video' && user.videoTrack) {
-    remoteVideoSlot.innerHTML = '';
-    user.videoTrack.play(remoteVideoSlot);
-    if (state.autoRecordCaseId) setTimeout(() => tryStartRemoteElementRecording(state.autoRecordCaseId), 300);
-  }
-  if (mediaType === 'audio' && user.audioTrack) user.audioTrack.play();
-}
-
-async function createAgoraTracks() {
-  try {
-    const tracks = await AgoraRTC.createMicrophoneAndCameraTracks();
-    return tracks;
-  } catch (error) {
-    if (error.code === 'DEVICE_NOT_FOUND' || error.name === 'NotFoundError') {
-      const videoTrack = await AgoraRTC.createCameraVideoTrack();
-      return [videoTrack];
-    }
-    throw error;
-  }
-}
-
-async function leaveAgoraCall(root = state.callRoot || document) {
-  state.agoraTracks.forEach((track) => {
-    track.stop();
-    track.close();
-  });
-  state.agoraTracks = [];
-  state.remoteSubscriptions = new Set();
-  if (state.agoraClient) {
-    await state.agoraClient.leave();
-    state.agoraClient = null;
-  }
-  const localVideoSlot = $('[data-slot="localVideoSlot"]', root);
-  const remoteVideoSlot = $('[data-slot="remoteVideoSlot"]', root);
-  if (localVideoSlot) localVideoSlot.innerHTML = '<video data-slot="localVideo" muted playsinline></video>';
-  if (remoteVideoSlot) remoteVideoSlot.innerHTML = '<video data-slot="remoteVideo" playsinline></video>';
-}
-
-function createPeer(caseId) {
-  const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-  peer.ontrack = (event) => {
-    const remoteVideo = $('#remoteVideo');
-    if (remoteVideo) {
-      remoteVideo.srcObject = event.streams[0];
-      remoteVideo.play().catch(() => {});
-    }
+function loadCases() {
+  if (!state.me?.user) return Promise.resolve();
+  if (state.caseLoad) return state.caseLoad;
+  const revision = state.caseRevision;
+  const identity = state.me.user;
+  const request = async () => {
+    const data = await api('/api/cases');
+    if (!Array.isArray(data.cases)) throw new Error('案件列表回應格式錯誤。');
+    await enqueueWorkflow(async () => {
+      if (identity !== state.me?.user || revision !== state.caseRevision) return;
+      state.cases = data.cases;
+      renderCaseShell($('#staffWorkspace'), state.cases, false);
+      if (state.me.user.role === 'admin') renderCaseShell($('#adminWorkspace'), state.cases, true);
+      const selected = state.cases.find((item) => item.id === state.currentCase?.id);
+      if (selected) await applySelectedCase(selected);
+      // No initial selection, no active-case jumping and no detail reconstruction.
+      inlineNotice($('#staffWorkspace'), '', 'caseLoadError');
+      inlineNotice($('#adminWorkspace'), '', 'caseLoadError');
+    });
+    if (identity === state.me?.user && state.me.user.role === 'admin') await renderAdminTools();
   };
-  peer.onicecandidate = (event) => {
-    if (event.candidate) socket.emit('call:signal', { caseId, signal: { candidate: event.candidate } });
-  };
-  return peer;
+  state.caseLoad = request().finally(() => { state.caseLoad = null; });
+  return state.caseLoad;
 }
 
-async function leaveCall(caseId, markStatement = false, stopRemoteRecording = false, root = state.callRoot || document) {
-  if (stopRemoteRecording && state.recorder && state.recorder.state !== 'inactive') stopRecording(state.recorderCaseId || caseId);
-  if (state.agoraClient || state.agoraTracks.length) await leaveAgoraCall(root);
-  state.peer?.close();
-  state.peer = null;
-  state.joinedCall = false;
-  state.callCaseId = null;
-  state.publishingLocal = false;
-  state.autoRecordCaseId = null;
-  state.remoteRecordStream?.getTracks().forEach((track) => track.stop());
-  state.remoteRecordStream = null;
-  const remoteVideo = $('[data-slot="remoteVideo"]', root);
-  if (remoteVideo) remoteVideo.srcObject = null;
-  if (markStatement) updateStatementStatus(caseId, false).catch(reportActionError);
-  socket.emit('call:leave', caseId);
-}
-
-async function loadCases() {
-  const data = await api(queryPath('/api/me', { action: 'cases' }));
-  state.cases = data.cases;
-  renderCaseShell($('#staffWorkspace'), state.cases.filter((item) => item.status === 'open'), false);
-  if (state.me?.user?.role === 'admin') {
-    renderCaseShell($('#adminWorkspace'), state.cases, true);
-    await renderAdminTools();
-  }
-}
-
-async function refreshCaseLists() {
-  if (!state.me?.user) return;
-  const data = await api(queryPath('/api/me', { action: 'cases' }));
-  state.cases = data.cases;
-  if (state.currentCase) {
-    state.currentCase = state.cases.find((item) => item.id === state.currentCase.id) || state.currentCase;
-  }
-  const staffRoot = $('#staffWorkspace');
-  if ($('[data-slot="caseList"]', staffRoot)) renderCaseList(staffRoot, state.cases.filter((item) => item.status === 'open'), false);
-  const adminRoot = $('#adminWorkspace');
-  if ($('[data-slot="caseList"]', adminRoot)) renderCaseList(adminRoot, state.cases, true);
-  const activeCase = state.cases.find((item) => item.status === 'open' && item.interviewStatus === 'active');
-  if (activeCase && state.currentCase?.id !== activeCase.id) {
-    const activePanel = $('.panel.active');
-    const isAdminPanel = activePanel?.id === 'adminPanel';
-    const root = isAdminPanel ? adminRoot : staffRoot;
-    const cases = isAdminPanel ? state.cases : state.cases.filter((item) => item.status === 'open');
-    if ($('[data-slot="caseList"]', root)) {
-      await openCaseDetail(root, cases, activeCase, isAdminPanel);
-      return;
-    }
-  }
-  const mediaRoot = $('.panel.active [data-slot="media"]');
-  if (state.currentCase?.interviewStatus === 'active' && mediaRoot) {
-    watchCall(state.currentCase.id, mediaRoot).catch(() => {});
-  }
-}
+function refreshCaseLists() { return loadCases(); }
 
 function startCasePolling() {
   clearInterval(state.casePollTimer);
-  state.casePollTimer = setInterval(() => {
-    if (state.joinedCall) return;
-    refreshCaseLists().catch(() => {});
-  }, 3000);
+  state.casePollTimer = setInterval(() => { refreshCaseLists().catch(renderAdminLoadError); }, 3000);
+}
+
+function renderAdminLoadError(error) {
+  const root = state.me?.user?.role === 'admin' ? $('#adminWorkspace') : $('#staffWorkspace');
+  root?.classList.remove('hidden');
+  inlineNotice(root, `後台資料載入失敗：${errorText(error)} 系統會繼續重試。`, 'caseLoadError');
+  if (root && !$('[data-action="resetStaffSession"]', root)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.action = 'resetStaffSession';
+    button.textContent = '重新登入';
+    button.className = 'secondary';
+    button.addEventListener('click', () => resetStaffSession().catch((failure) => reportActionError(failure, root)));
+    root.appendChild(button);
+  }
+}
+
+function resetStaffSession() {
+  return enqueueWorkflow(async () => {
+    await disconnectCurrent();
+    await api('/api/staff/logout', { method: 'POST' });
+    clearInterval(state.casePollTimer);
+    clearInterval(state.messagePollTimer);
+    window.location.href = '/admin#admin';
+  });
+}
+
+async function submitAdminForm(form, operation) {
+  const button = $('button[type="submit"]', form);
+  if (button.disabled) return;
+  button.disabled = true;
+  inlineNotice(form, '');
+  try { await operation(); } catch (error) { reportActionError(error, form); }
+  finally { button.disabled = false; }
 }
 
 async function renderAdminTools() {
   const root = $('#adminWorkspace');
+  if (!root || $('#createUserForm', root)) return;
   const tools = document.createElement('div');
   tools.className = 'admin-grid';
-  tools.innerHTML = `
-    <div class="surface">
-      <h2>預先開通民眾</h2>
-      <form id="createCaseForm" class="stacked-form">
-        <label>姓名<input name="citizenName" required></label>
-        <label>身分證/居留證號<input name="nationalId" required></label>
-        <button type="submit">新增並直接開通</button>
-      </form>
-    </div>
-    <div class="surface">
-      <h2>新增客服/管理員</h2>
-      <form id="createUserForm" class="stacked-form">
-        <label>顯示姓名<input name="displayName" required></label>
-        <label>帳號<input name="username" required></label>
-        <label>密碼<input name="password" type="password" required></label>
-        <label>角色<select name="role"><option value="agent">客服</option><option value="admin">管理員</option></select></label>
-        <button type="submit">建立帳號</button>
-      </form>
-    </div>
-    <div class="surface">
-      <h2>帳號列表</h2>
-      <div id="userList" class="table-list"></div>
-    </div>
-  `;
+  tools.innerHTML = `<div class="surface"><h2>預先開通民眾</h2>
+    <form id="createCaseForm" class="stacked-form"><label>姓名<input name="citizenName" required></label><label>身分證/居留證號<input name="nationalId" required></label><button type="submit">新增並直接開通</button></form></div>
+    <div class="surface"><h2>新增客服/管理員</h2><form id="createUserForm" class="stacked-form">
+      <label>顯示姓名<input name="displayName" required></label><label>帳號<input name="username" required></label><label>密碼<input name="password" type="password" autocomplete="new-password" required></label>
+      <label>角色<select name="role"><option value="agent">客服</option><option value="admin">管理員</option></select></label><button type="submit">建立帳號</button></form></div>
+    <div class="surface"><h2>帳號列表</h2><div id="userList" class="table-list"></div><button type="button" data-action="refreshUsers" class="secondary">重新整理帳號</button></div>`;
   root.appendChild(tools);
-  $('#createCaseForm', tools).addEventListener('submit', async (event) => {
+  $('#createCaseForm', tools).addEventListener('submit', (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    await api(queryPath('/api/me', { action: 'create-case', citizenName: form.citizenName.value, nationalId: form.nationalId.value }));
-    form.reset();
-    await loadCases();
-  });
-  $('#createUserForm', tools).addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    await api('/api/users', {
-      method: 'POST',
-      body: JSON.stringify({
-        displayName: form.displayName.value,
-        username: form.username.value,
-        password: form.password.value,
-        role: form.role.value
-      })
+    void submitAdminForm(form, async () => {
+      const value = (name) => form.elements.namedItem(name).value;
+      const data = await api('/api/cases', postOptions({ citizenName: value('citizenName'), nationalId: value('nationalId') }));
+      if (!data.case?.id) throw new Error('預先開通結果不完整，請重新整理確認。');
+      await enqueueWorkflow(async () => {
+        state.caseRevision += 1;
+        const index = state.cases.findIndex((item) => item.id === data.case.id);
+        if (index < 0) state.cases.unshift(data.case); else state.cases[index] = data.case;
+        await applySelectedCase(data.case);
+        renderAllCaseLists();
+      });
+      form.reset();
     });
-    form.reset();
-    await renderUserList();
   });
-  await renderUserList();
+  $('#createUserForm', tools).addEventListener('submit', (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    void submitAdminForm(form, async () => {
+      const value = (name) => form.elements.namedItem(name).value;
+      await api('/api/users', postOptions({ displayName: value('displayName'), username: value('username'), password: value('password'), role: value('role') }));
+      form.reset();
+      await renderUserList();
+    });
+  });
+  $('[data-action="refreshUsers"]', tools).addEventListener('click', () => renderUserList().catch((error) => reportActionError(error, tools)));
+  await renderUserList().catch((error) => reportActionError(error, tools));
 }
 
 async function renderUserList() {
   const list = $('#userList');
   if (!list) return;
   const { users } = await api('/api/users');
+  if (!Array.isArray(users)) throw new Error('帳號列表回應格式錯誤。');
   list.innerHTML = '';
   users.forEach((user) => {
     const row = document.createElement('div');
     row.className = 'user-row';
-    row.innerHTML = `<strong>${escapeHtml(user.displayName)}</strong><div class="muted">${escapeHtml(user.username)} · ${user.role}</div>`;
+    row.innerHTML = `<strong>${escapeHtml(user.displayName)}</strong><div class="muted">${escapeHtml(user.username)} · ${escapeHtml(user.role)}</div>`;
     list.appendChild(row);
   });
 }
 
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
+async function enterCitizen(form) {
+  // Check again at the point of entry: another tab may have changed the cookie.
+  const me = await api('/api/me');
+  if (me.user) { showNotice(IDENTITY_NOTICE, 'error'); return; }
+  if (state.videoSession?.hasLocalMedia && !window.confirm('重新進入案件會先關閉目前攝影機與麥克風。是否繼續？')) return;
+  await disconnectCurrent();
+  const data = await api('/api/citizen/start', postOptions({
+    citizenName: form.elements.namedItem('citizenName').value,
+    nationalId: form.elements.namedItem('nationalId').value
+  }));
+  if (!data.case?.id) throw new Error('報案申請結果不完整，請稍後重試。');
+  if (data.status !== 'open' || data.case.status !== 'open') {
+    showNotice(data.case.status === 'closed' ? '此案件已結案，請聯絡承辦人員。' : '已送出線上報案開通申請，等待審核。審核完成後，請以同一組資料按「我要視訊報案」。');
+    return;
+  }
+  const session = await api('/api/me');
+  if (session.user) { showNotice(IDENTITY_NOTICE, 'error'); return; }
+  if (session.case?.id !== data.case.id) throw new Error('民眾登入身分驗證失敗，請重新進入案件。');
+  state.me = session;
+  if (!await selectCaseNow($('#citizenWorkspace'), data.case, false)) return;
+  showNotice('已進入線上報案系統，正在連接視訊。');
+  state.mediaPending = true;
+  state.mediaError = '';
+  try { await joinCall(data.case.id, true, false, state.callRoot); }
+  catch (error) { showMediaError(error); }
+  finally { state.mediaPending = false; renderMediaState(); }
+  showNotice('已進入線上報案系統。視訊狀態與權限錯誤會顯示在視訊區，訊息與附件仍可使用。');
+}
+
+async function showStaffWorkspace() {
+  $('#staffLogin')?.classList.add('hidden');
+  $('#staffWorkspace')?.classList.remove('hidden');
+  if (state.me.user.role === 'admin') {
+    $('#adminWorkspace')?.classList.remove('hidden');
+    activatePanel('adminPanel');
+  } else activatePanel('staffPanel');
+  await loadCases().catch(renderAdminLoadError);
+  startCasePolling();
+}
+
+async function loginStaff(form) {
+  if (state.videoSession?.hasLocalMedia && !window.confirm('登入後台將關閉目前民眾視訊。是否繼續？')) return;
+  await disconnectCurrent();
+  await api('/api/staff/login', postOptions({ username: form.elements.namedItem('username').value, password: form.elements.namedItem('password').value }));
+  const me = await api('/api/me');
+  if (!me.user || !['admin', 'agent'].includes(me.user.role)) throw new Error('後台登入驗證失敗，請重新登入。');
+  state.me = me;
+  state.currentCase = null;
+  state.detailRoot = state.callRoot = state.conversation = null;
+  state.viewVersion += 1;
+  clearInterval(state.messagePollTimer);
+  $('#citizenWorkspace')?.classList.add('hidden');
+  form.elements.namedItem('password').value = '';
 }
 
 $$('.tab-button').forEach((button) => button.addEventListener('click', () => {
-  if (button.dataset.panel === 'adminPanel' && !state.me?.user) {
-    activatePanel('staffPanel');
-    if (window.location.pathname === '/admin' || window.location.pathname === '/admin/') window.history.replaceState(null, '', '/admin#admin');
-    return;
-  }
-  activatePanel(button.dataset.panel);
+  const panel = button.dataset.panel;
+  if (panel === 'adminPanel' && state.me?.user?.role !== 'admin') { activatePanel('staffPanel'); return; }
+  activatePanel(panel);
 }));
 
-$('#citizenForm').addEventListener('submit', async (event) => {
+$('#citizenForm')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
+  const button = $('button[type="submit"]', form);
+  if (button?.disabled) return;
+  if (button) button.disabled = true;
+  try { await bootPromise; await enqueueWorkflow(() => enterCitizen(form)); }
+  catch (error) { showNotice(errorText(error), 'error'); }
+  finally { if (button) button.disabled = false; }
+});
+
+$('#staffLoginForm')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = $('button[type="submit"]', form);
+  if (button?.disabled) return;
+  if (button) button.disabled = true;
+  inlineNotice(form, '');
   try {
-    const data = await api(queryPath('/api/me', { action: 'citizen-start', citizenName: form.citizenName.value, nationalId: form.nationalId.value }));
-    if (data.status === 'pending') {
-      $('#citizenWorkspace').classList.add('hidden');
-      showNotice('已送出開通申請，請等待管理員審核。審核完成後用同一組資料即可進入客服。');
+    await bootPromise;
+    await enqueueWorkflow(() => loginStaff(form));
+    if (state.me?.user) await showStaffWorkspace();
+  } catch (error) { reportActionError(error, form); }
+  finally { if (button) button.disabled = false; }
+});
+
+async function boot() {
+  const entryMode = document.body.dataset.entry || 'mixed';
+  const isAdminPage = entryMode === 'admin' || /^\/admin(?:\.html)?\/?$/.test(window.location.pathname);
+  const staffHash = ['#staff', '#admin'].includes(window.location.hash);
+  const citizenEntry = entryMode === 'citizen' && !staffHash && !isAdminPage;
+  activatePanel(citizenEntry ? 'citizenPanel' : isAdminPage || staffHash ? 'staffPanel' : 'citizenPanel');
+  if (citizenEntry) window.history.replaceState(null, '', window.location.pathname);
+  if (isAdminPage) window.history.replaceState(null, '', '/admin#admin');
+  state.me = await api('/api/me');
+  if (citizenEntry && state.me.user) { showNotice(IDENTITY_NOTICE, 'error'); return; }
+  if (state.me.user) await showStaffWorkspace();
+  else if (state.me.case) {
+    if (state.me.case.status !== 'open') {
+      showNotice(state.me.case.status === 'closed' ? '此案件已結案，請聯絡承辦人員。' : '案件尚待審核；開通後請按「我要視訊報案」重新進入。');
       return;
     }
-    showNotice('已進入線上客服服務。');
-    state.me = await api('/api/me');
-    renderCitizenWorkspace(data.case);
-  } catch (error) {
-    $('#citizenWorkspace').classList.add('hidden');
-    showNotice(error.message || '申請失敗，請稍後再試。', 'error');
+    await renderCitizenWorkspace(state.me.case);
+    showNotice('已恢復案件工作區。鏡頭與麥克風尚未開啟，請按「開始視訊報案」。');
   }
-});
+}
 
-$('#staffLoginForm').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  try {
-    await api(queryPath('/api/me', { action: 'staff-login', username: form.username.value, password: form.password.value }));
-    state.me = await api('/api/me');
-    $('#staffLogin').classList.add('hidden');
-    $('#staffWorkspace').classList.remove('hidden');
-    if (state.me.user.role === 'admin') {
-      $('#adminWorkspace').classList.remove('hidden');
-      activatePanel('adminPanel');
-    }
-    await loadCases().catch(renderAdminLoadError);
-    startCasePolling();
-  } catch (error) {
-    window.alert(error.message || '登入失敗，請確認帳號密碼。');
-  }
+const bootPromise = boot().catch((error) => {
+  if (document.body.dataset.entry === 'citizen' && !['#staff', '#admin'].includes(window.location.hash)) showNotice(errorText(error), 'error');
+  else reportActionError(error, $('#staffLogin'));
 });
-
-socket.on('message:created', (message) => {
-  if (message.caseId !== state.currentCase?.id) return;
-  const log = $('.panel.active .chat-log');
-  if (log) appendMessage(log, message);
-});
-
-socket.on('file:created', (file) => {
-  const list = $('.panel.active .file-list');
-  if (list) appendFile(list, file);
-});
-
-socket.on('case:updated', async () => {
-  if (state.me?.user) await loadCases();
-});
-
-socket.on('call:peer-ready', async () => {
-  if (!state.joinedCall || !state.peer) return;
-  const offer = await state.peer.createOffer();
-  await state.peer.setLocalDescription(offer);
-  socket.emit('call:signal', { caseId: state.currentCase.id, signal: { description: state.peer.localDescription } });
-});
-
-socket.on('call:signal', async (signal) => {
-  if (!state.peer || !state.currentCase) return;
-  if (signal.description) {
-    await state.peer.setRemoteDescription(signal.description);
-    if (signal.description.type === 'offer') {
-      const answer = await state.peer.createAnswer();
-      await state.peer.setLocalDescription(answer);
-      socket.emit('call:signal', { caseId: state.currentCase.id, signal: { description: state.peer.localDescription } });
-    }
-  }
-  if (signal.candidate) await state.peer.addIceCandidate(signal.candidate);
-});
-
-socket.on('call:peer-left', () => {
-  state.peer?.close();
-  state.peer = null;
-});
-
-(async function boot() {
-  const entryMode = document.body.dataset.entry || 'mixed';
-  const isAdminPage = window.location.pathname === '/admin' || window.location.pathname === '/admin/';
-  const staffHash = window.location.hash === '#staff' || window.location.hash === '#admin';
-  if (entryMode === 'citizen' && !staffHash) {
-    activatePanel('citizenPanel');
-    window.history.replaceState(null, '', window.location.pathname);
-    state.me = await api('/api/me').catch(() => ({ user: null, case: null }));
-    if (state.me.case) renderCitizenWorkspace(state.me.case);
-    return;
-  }
-  if (isAdminPage) {
-    window.history.replaceState(null, '', '/admin#admin');
-  }
-  const initialPanel = {
-    '#citizen': 'citizenPanel',
-    '#staff': 'staffPanel',
-    '#admin': 'adminPanel'
-  }[window.location.hash];
-  if (initialPanel) activatePanel(initialPanel);
-  if (isAdminPage || window.location.hash === '#admin' || window.location.hash === '#staff') {
-    activatePanel('staffPanel');
-    if (isAdminPage) window.history.replaceState(null, '', '/admin#admin');
-  }
-  state.me = await api('/api/me').catch(() => ({ user: null, case: null }));
-  if (state.me.user) {
-    $('#staffLogin').classList.add('hidden');
-    $('#staffWorkspace').classList.remove('hidden');
-    if (state.me.user.role === 'admin') {
-      $('#adminWorkspace').classList.remove('hidden');
-      activatePanel('adminPanel');
-    }
-    await loadCases().catch(renderAdminLoadError);
-    startCasePolling();
-  } else if (window.location.hash === '#admin' || window.location.hash === '#staff') {
-    activatePanel('staffPanel');
-    if (isAdminPage) window.history.replaceState(null, '', '/admin#admin');
-  }
-  if (state.me.case) renderCitizenWorkspace(state.me.case);
-})();

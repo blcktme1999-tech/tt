@@ -214,7 +214,7 @@ app.post('/api/citizen/start', (req, res) => {
     db.prepare(`
       INSERT INTO messages (id, case_id, sender_type, sender_name, body, created_at)
       VALUES (?, ?, 'system', '系統', ?, ?)
-    `).run(id(), caseId, '民眾已送出線上客服開通申請，等待管理員審核。', now());
+    `).run(id(), caseId, '民眾已送出線上報案開通申請，等待審核。', now());
     caseRow = db.prepare('SELECT * FROM cases WHERE id = ?').get(caseId);
   }
 
@@ -270,7 +270,7 @@ app.post('/api/cases/:caseId/approve', requireAdmin, (req, res) => {
   db.prepare(`
     INSERT INTO messages (id, case_id, sender_type, sender_name, body, created_at)
     VALUES (?, ?, 'system', '系統', ?, ?)
-  `).run(id(), target.id, '管理員已開通線上客服服務。', now());
+  `).run(id(), target.id, '已開通線上報案系統。', now());
   const updated = db.prepare('SELECT * FROM cases WHERE id = ?').get(target.id);
   io.to(`case:${target.id}`).emit('case:updated', publicCase(updated));
   res.json({ case: publicCase(updated) });

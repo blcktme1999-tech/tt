@@ -1,4 +1,4 @@
-const { bcrypt, createSessionCookie, ensureDefaultAdmin, getSupabase, json, methodNotAllowed, publicUser } = require('./_lib/service');
+const { bcrypt, createSessionCookie, ensureDefaultAdmin, getSupabase, json, methodNotAllowed, publicUser, serviceErrorMessage } = require('./_lib/service');
 
 function getQuery(req) {
   const host = req.headers.host || 'localhost';
@@ -21,6 +21,6 @@ module.exports = async function handler(req, res) {
     res.setHeader('Set-Cookie', createSessionCookie({ user }));
     json(res, 200, { user });
   } catch (error) {
-    json(res, 500, { error: error.message || '登入失敗' });
+    json(res, 500, { error: serviceErrorMessage(error, '登入失敗') });
   }
 };

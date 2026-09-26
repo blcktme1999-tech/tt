@@ -17,7 +17,7 @@ async function handler(req, res) {
       const inserted = await client.from('service_cases').insert({ citizen_name: citizenName, national_id: nationalId, status: 'pending' }).select('*').single();
       if (inserted.error) throw inserted.error;
       caseRow = inserted.data;
-      const message = await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '系統', body: '民眾已送出線上客服開通申請，等待管理員審核。' });
+      const message = await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '系統', body: '民眾已送出線上報案開通申請，等待審核。' });
       if (message.error) throw message.error;
     }
 
