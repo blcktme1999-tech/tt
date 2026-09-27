@@ -262,6 +262,7 @@ body.police-service {
 .police-service .agency-name { margin-bottom: .2rem; font-size: clamp(1rem, 2vw, 1.3rem); letter-spacing: .15em; font-weight: 600; }
 .police-service .app-header h1 { color: #fff; font-size: clamp(1.6rem, 3vw, 2.25rem); letter-spacing: .1em; }
 .police-service .header-context { margin: 0; padding: .5rem 1rem; border: 1px solid #6f95bb; border-radius: 999px; font-size: .9rem; color: #e4f1ff; }
+.police-service .brand-top-image { display: block; flex: 0 0 auto; width: auto; height: clamp(54px, 7vw, 88px); max-width: min(42vw, 360px); object-fit: contain; border-radius: 4px; }
 .police-service .emblem-placeholder { display: grid; justify-items: center; gap: 6px; flex: 0 0 auto; text-align: center; }
 .police-service .emblem-placeholder svg { width: 40px; height: 48px; }
 .police-service .emblem-placeholder span { font-size: .65rem; line-height: 1.5; color: #d8e9fb; }
