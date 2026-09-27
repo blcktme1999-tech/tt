@@ -25,7 +25,7 @@ module.exports = async function handler(req, res) {
         if (inserted.error) throw inserted.error;
         caseRow = inserted.data;
       }
-      await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '系統', body: '管理員已預先開通線上客服服務。' });
+      await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '警政系統', body: '管理員已預先開通線上客服服務。' });
       return json(res, 200, { case: publicCase(caseRow) });
     }
 

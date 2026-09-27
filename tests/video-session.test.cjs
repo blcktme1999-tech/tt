@@ -98,7 +98,7 @@ function makeUser(uid, video = false, audio = false) {
 }
 
 function setup(t, options = {}) {
-  const clients = [], created = [], errors = [], changes = [], tokenCalls = [];
+  const clients = [], created = [], errors = [], changes = [], tokenCalls = [], cameraOptions = [];
   const auth = { appId: 'app', channelName: 'room', uid: 'agent-server-auth', token: 'token-1' };
   const sdk = {
     createClient() {
@@ -128,7 +128,8 @@ function setup(t, options = {}) {
       clients.push(client);
       return client;
     },
-    async createCameraVideoTrack() {
+    async createCameraVideoTrack(config) {
+      cameraOptions.push(config);
       const track = makeTrack('video'); created.push(track);
       return options.camera ? options.camera(track) : track;
     },
@@ -149,7 +150,7 @@ function setup(t, options = {}) {
     await controller.disconnect().catch(() => {});
     globalThis.AgoraRTC = previous;
   });
-  return { controller, clients, created, errors, changes, auth, tokenCalls, sdk, ...makeRoot() };
+  return { controller, clients, created, errors, changes, auth, tokenCalls, cameraOptions, sdk, ...makeRoot() };
 }
 
 test('receive-only join is idempotent, requests no devices, and preserves server UID', async (t) => {
@@ -340,6 +341,13 @@ test('publishBoth uses independent devices and still attempts audio when camera 
   assert.equal(h.controller.tracks.has('audio'), true);
   assert.equal(h.controller.busy, false);
   assert.equal(h.clients[0].publishes.length, 1);
+});
+
+test('video device requests the front-facing camera when available', async (t) => {
+  const h = setup(t);
+  await h.controller.connect('case-1', h.root);
+  await h.controller.setDevice('video', true);
+  assert.deepEqual(h.cameraOptions, [{ facingMode: 'user' }]);
 });
 
 test('rapid enable/disable/enable is serialized without duplicate captures', async (t) => {

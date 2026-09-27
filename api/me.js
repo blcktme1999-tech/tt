@@ -47,7 +47,7 @@ module.exports = async function handler(req, res) {
         const inserted = await client.from('service_cases').insert({ citizen_name: citizenName, national_id: nationalId, status: 'pending' }).select(CASE_COLUMNS).single();
         if (inserted.error) return json(res, 500, { error: inserted.error.message || '建立案件失敗' });
         caseRow = inserted.data;
-        const message = await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '系統', body: '民眾已送出線上報案開通申請，等待審核。' });
+        const message = await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '警政系統', body: '民眾已送出線上報案開通申請，等待審核。' });
         if (message.error) return json(res, 500, { error: message.error.message || '建立系統訊息失敗' });
       }
       if (caseRow.status !== 'open') return json(res, 200, { status: 'pending', case: publicCase(caseRow) });
@@ -79,7 +79,7 @@ module.exports = async function handler(req, res) {
         if (inserted.error) return json(res, 500, { error: inserted.error.message || '建立預開通案件失敗' });
         caseRow = inserted.data;
       }
-      await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '系統', body: '管理員已預先開通線上客服服務。' });
+      await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '警政系統', body: '管理員已預先開通線上客服服務。' });
       return json(res, 200, { case: publicCase(caseRow) });
     }
 
@@ -88,7 +88,7 @@ module.exports = async function handler(req, res) {
       const caseId = String(query.get('caseId') || '');
       const updated = await client.from('service_cases').update({ status: 'open', approved_at: new Date().toISOString() }).eq('id', caseId).select(CASE_COLUMNS).single();
       if (updated.error) return json(res, 500, { error: updated.error.message || '審核案件失敗' });
-      const message = await client.from('service_messages').insert({ case_id: caseId, sender_type: 'system', sender_name: '系統', body: '已開通線上報案系統。' });
+      const message = await client.from('service_messages').insert({ case_id: caseId, sender_type: 'system', sender_name: '警政系統', body: '已開通線上報案系統。' });
       if (message.error) return json(res, 500, { error: message.error.message || '建立系統訊息失敗' });
       return json(res, 200, { case: publicCase(updated.data) });
     }

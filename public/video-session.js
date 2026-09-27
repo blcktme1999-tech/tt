@@ -276,7 +276,7 @@
           let publishAttempted = false;
           try {
             track = await (kind === 'video'
-              ? session.sdk.createCameraVideoTrack()
+              ? session.sdk.createCameraVideoTrack({ facingMode: 'user' })
               : session.sdk.createMicrophoneAudioTrack());
             session.owned.add(track);
             this._checkDevice(session, deviceEpoch);

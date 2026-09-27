@@ -60,6 +60,20 @@ function displayMessage(value) {
   return replacements[value] || String(value ?? '');
 }
 
+function displaySenderName(message) {
+  const name = String(message?.senderName ?? '');
+  return message?.senderType === 'system' || name === '系統' || name === '系統管理員' ? '警政系統' : name;
+}
+
+function displayCaseNumber(caseItem) {
+  const date = new Date(caseItem?.createdAt);
+  const year = Number.isNaN(date.getTime()) ? new Date().getFullYear() : date.getFullYear();
+  let hash = 0;
+  for (const char of String(caseItem?.id || '')) hash = ((hash * 31) + char.charCodeAt(0)) >>> 0;
+  const serial = String((hash % 900000) + 100000).padStart(6, '0');
+  return `${year - 1911}年度受理字${serial}號`;
+}
+
 function errorText(error) {
   return error?.message || '操作失敗，請稍後再試。';
 }
@@ -207,9 +221,6 @@ async function selectCaseNow(root, caseItem, isAdmin = false) {
   }
   renderCaseDetail(root, caseItem, isAdmin);
   renderAllCaseLists();
-  if (state.me?.user && caseItem.status === 'open') {
-    try { await watchCall(caseItem.id, state.callRoot); } catch (error) { showMediaError(error); }
-  }
   return true;
 }
 
@@ -230,7 +241,7 @@ function renderCaseDetail(root, caseItem, isAdmin) {
   summary.innerHTML = `<div class="section-heading"><h2>${escapeHtml(caseItem.citizenName)}</h2>
     ${isAdmin ? '<button type="button" data-action="approve" class="warning">審核開通</button>' : ''}</div>
     <div class="summary-grid">
-      <div class="summary-box">案件編號<strong>${escapeHtml(caseItem.id)}</strong></div>
+      <div class="summary-box">案件編號<strong>${escapeHtml(displayCaseNumber(caseItem))}</strong></div>
       <div class="summary-box">身分證字號<strong>${escapeHtml(caseItem.nationalId || caseItem.agoraChannel || '未提供')}</strong></div>
       <div class="summary-box">狀態<strong data-slot="caseStatus"></strong></div>
       <div class="summary-box">建立時間<strong>${escapeHtml(formatTime(caseItem.createdAt))}</strong></div>
@@ -270,9 +281,6 @@ async function applySelectedCase(caseItem) {
   if (caseItem.status !== 'open' && state.videoSession?.caseId === caseItem.id) await state.videoSession.disconnect();
   renderMediaState();
   // interviewStatus is a badge only, never a reason to select a different case.
-  if (oldStatus !== 'open' && caseItem.status === 'open' && state.me?.user) {
-    try { await watchCall(caseItem.id, state.callRoot); } catch (error) { showMediaError(error); }
-  }
 }
 
 function getVideoSession() {
@@ -311,7 +319,7 @@ function renderMedia(root, caseItem) {
       <p class="muted">本頁不會自動錄影；錄影功能須另行確認並取得明確同意後才可啟用。</p>
       <div data-slot="mediaError" class="notice error" role="status" aria-live="polite" hidden></div>
       <div class="button-row">
-        ${staff ? '' : '<button type="button" data-action="joinCall" class="warning">開始視訊報案</button><button type="button" data-action="leaveCall" class="danger">結束筆錄</button>'}
+        <button type="button" data-action="joinCall" class="warning">${staff ? '加入會議' : '開始視訊報案'}</button>
         <button type="button" data-action="toggleVideo" class="secondary" aria-pressed="false">開啟鏡頭</button>
         <button type="button" data-action="toggleAudio" class="secondary" aria-pressed="false">開啟麥克風</button>
         <button type="button" data-action="retryMedia" class="secondary" hidden>重試視訊</button>
@@ -319,7 +327,7 @@ function renderMedia(root, caseItem) {
       </div>
     </div></div>`;
   const mediaAction = (operation) => runMediaAction(caseItem.id, root, operation).catch(showMediaError);
-  $('[data-action="joinCall"]', root)?.addEventListener('click', () => mediaAction(() => joinCall(caseItem.id, true, false, root)));
+  $('[data-action="joinCall"]', root)?.addEventListener('click', () => mediaAction(() => staff ? watchCall(caseItem.id, root) : joinCall(caseItem.id, true, false, root)));
   $('[data-action="leaveCall"]', root)?.addEventListener('click', () => mediaAction(() => leaveCall(caseItem.id, true)));
   for (const [action, kind] of [['toggleVideo', 'video'], ['toggleAudio', 'audio']]) {
     $(`[data-action="${action}"]`, root).addEventListener('click', () => mediaAction(async () => {
@@ -542,7 +550,7 @@ function messageElement(message) {
   const mine = state.me?.user ? ['agent', 'admin'].includes(message.senderType) : message.senderType === 'citizen';
   const item = document.createElement('div');
   item.className = `message ${mine ? 'mine' : ''} ${message.senderType === 'system' ? 'system' : ''}`;
-  item.innerHTML = `<small>${escapeHtml(message.senderName)} · ${escapeHtml(formatTime(message.createdAt))}</small><div>${escapeHtml(displayMessage(message.body))}</div>`;
+  item.innerHTML = `<small>${escapeHtml(displaySenderName(message))} · ${escapeHtml(formatTime(message.createdAt))}</small><div>${escapeHtml(displayMessage(message.body))}</div>`;
   return item;
 }
 

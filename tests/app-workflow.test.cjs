@@ -237,7 +237,7 @@ async function harness(options = {}) {
   }
   h.window = window;
   vm.runInContext(source, context, { filename: 'app.js' });
-  h.app = vm.runInContext('({ state, bootPromise, api, selectCase, loadCases, refreshMessages, renderCaseShell, renderCitizenWorkspace, filterCaseItems, safeFileUrl, displayMessage, uploadVideo, mergeConversation, startCasePolling, runMediaAction, enterCitizen, loginStaff, renderMediaState, showMediaError })', context);
+  h.app = vm.runInContext('({ state, bootPromise, api, selectCase, loadCases, refreshMessages, renderCaseShell, renderCitizenWorkspace, filterCaseItems, safeFileUrl, displayMessage, displayCaseNumber, uploadVideo, mergeConversation, startCasePolling, runMediaAction, enterCitizen, loginStaff, renderMediaState, showMediaError })', context);
   h.$ = (selector, root = doc) => root.querySelector(selector);
   h.flush = async () => { await tick(); await h.app.state.workflow; await tick(); };
   await h.app.bootPromise; await h.flush();
@@ -246,6 +246,11 @@ async function harness(options = {}) {
     h.app.state.cases = h.cases;
     const root = h.$(admin ? '#adminWorkspace' : '#staffWorkspace');
     h.app.renderCaseShell(root, h.cases, admin); return root;
+  };
+  h.joinSelected = async () => {
+    await h.$('[data-action="joinCall"]', h.app.state.callRoot).fire('click');
+    await h.flush();
+    return h.controllers[0];
   };
   return h;
 }
@@ -263,14 +268,18 @@ test('production API fails closed on network, HTML, malformed JSON and HTTP fail
   assert.equal(h.controllers.length, 0);
 });
 
-test('staff selects idle open case: automatically receives, independent toggles, no receiver stop', async () => {
+test('staff selects idle open case: joins explicitly, independent toggles, no receiver stop', async () => {
   const a = caseItem('a'), h = await harness({ cases: [a] }), root = await h.staff();
   await h.app.selectCase(root, a); await h.flush();
   const media = h.app.state.callRoot;
+  assert.equal(h.controllers.length, 0);
+  assert.equal(h.$('[data-action="joinCall"]', media).textContent, '加入會議');
+  assert.match(h.$('[data-slot="caseSummary"]', root).textContent, /115年度受理字\d{6}號/);
+  assert.equal(h.app.displayCaseNumber(a), h.app.displayCaseNumber(a));
+  await h.joinSelected();
   assert.equal(h.controllers.length, 1); assert.equal(h.controllers[0].connected, true);
   assert.equal(h.controllers[0].hasLocalMedia, false);
   assert.equal(h.$('[data-action="leaveCall"]', media), null);
-  assert.equal(h.$('[data-action="joinCall"]', media), null);
   await h.$('[data-action="toggleAudio"]', media).fire('click'); await h.flush();
   assert.deepEqual([...h.controllers[0].tracks.keys()], ['audio']);
   await h.$('[data-action="toggleVideo"]', media).fire('click'); await h.flush();
@@ -284,6 +293,7 @@ test('staff selects idle open case: automatically receives, independent toggles,
 test('guarded selection declines switch, then closes own media and enters next case receive-only', async () => {
   const a = caseItem('a'), b = caseItem('b'), h = await harness({ cases: [a, b] }), root = await h.staff();
   await h.app.selectCase(root, a);
+  await h.joinSelected();
   await h.controllers[0].setDevice('video', true);
   const player = h.$('[data-slot="localPlayer"]', h.app.state.callRoot);
   h.confirm = false;
@@ -291,22 +301,22 @@ test('guarded selection declines switch, then closes own media and enters next c
   assert.equal(h.app.state.currentCase.id, 'a'); assert.ok(player.isConnected);
   h.confirm = true;
   await h.app.selectCase(root, b);
-  assert.equal(h.controllers.length, 1); assert.equal(h.controllers[0].caseId, 'b');
+  assert.equal(h.controllers.length, 1); assert.equal(h.controllers[0].caseId, null);
   assert.equal(h.controllers[0].hasLocalMedia, false); assert.equal(player.isConnected, false);
   const disconnect = h.calls.findIndex(([kind, id, tracks]) => kind === 'disconnect' && id === 'a' && tracks === 1);
-  assert.ok(disconnect >= 0 && disconnect < h.calls.findIndex(([kind, id]) => kind === 'connect' && id === 'b'));
+  assert.ok(disconnect >= 0);
+  assert.equal(h.calls.some(([kind, id]) => kind === 'connect' && id === 'b'), false);
 });
 
 test('rapid selections wait for join and never connect to detached roots or publish automatically', async () => {
   const a = caseItem('a'), b = caseItem('b'), h = await harness({ cases: [a, b] }), root = await h.staff();
-  const gate = h.connectGate = deferred();
   const first = h.app.selectCase(root, a); await tick();
   const oldPlayer = h.$('[data-slot="localPlayer"]', h.app.state.callRoot);
   const next = h.app.selectCase(root, b); await tick();
-  assert.ok(oldPlayer.isConnected); assert.equal(h.controllers[0].connected, false);
-  assert.deepEqual(h.calls.filter(([kind]) => kind === 'connect').map((call) => call[1]), ['a']);
-  h.connectGate = null; gate.resolve(); await Promise.all([first, next]);
-  assert.equal(h.app.state.currentCase.id, 'b'); assert.equal(h.controllers[0].hasLocalMedia, false);
+  await Promise.all([first, next]);
+  assert.equal(oldPlayer.isConnected, false);
+  assert.equal(h.app.state.currentCase.id, 'b'); assert.equal(h.controllers.length, 0);
+  assert.deepEqual(h.calls.filter(([kind]) => kind === 'connect'), []);
 });
 
 test('pending detail loads messages and approval, but no files/token; approval starts selected receiver', async () => {
@@ -317,13 +327,16 @@ test('pending detail loads messages and approval, but no files/token; approval s
   assert.equal(h.requests.some((request) => /\/(files|agora-token)$/.test(request.url)), false);
   assert.equal(h.$('[data-action="approve"]', root).hidden, false);
   await h.$('[data-action="approve"]', root).fire('click'); await h.flush();
-  assert.equal(h.app.state.currentCase.status, 'open'); assert.equal(h.controllers[0].connected, true);
+  assert.equal(h.app.state.currentCase.status, 'open'); assert.equal(h.controllers.length, 0);
+  await h.joinSelected();
+  assert.equal(h.controllers[0].connected, true);
   assert.ok(h.requests.some((request) => request.url.endsWith('/files')));
 });
 
 test('polling and manual refresh keep selected media, composer, filters and never jump to active case', async () => {
   const a = caseItem('a'), h = await harness({ cases: [a] }), root = await h.staff();
   await h.app.selectCase(root, a); await h.flush();
+  await h.joinSelected();
   const player = h.$('[data-slot="localPlayer"]', root), input = h.$('.message-form textarea', root);
   input.value = '保留草稿'; h.$('[data-action="searchCases"]', root).value = 'IDa';
   h.$('[data-action="filterCases"]', root).value = 'open';
@@ -358,10 +371,8 @@ test('citizen reload renders two default tiles but does not connect or capture',
   assert.equal(h.$('[data-slot="recordingNotice"]', h.app.state.callRoot).textContent, '錄影尚未啟用');
   await h.$('[data-action="joinCall"]', h.app.state.callRoot).fire('click'); await h.flush();
   assert.equal(h.controllers[0].tracks.size, 2);
-  await h.$('[data-action="leaveCall"]', h.app.state.callRoot).fire('click'); await h.flush();
-  assert.equal(h.controllers[0].connected, false);
-  assert.equal(h.app.state.currentCase.interviewStatus, 'idle');
-  assert.equal(JSON.parse(h.requests.filter((request) => request.url.endsWith('/statement')).at(-1).body).active, false);
+  assert.equal(h.$('[data-action="leaveCall"]', h.app.state.callRoot), null);
+  assert.equal(h.app.state.currentCase.interviewStatus, 'active');
 });
 
 test('citizen submit uses POST, publishes both; permissions error is inline and retry keeps workspace', async () => {
@@ -462,27 +473,31 @@ test('attachment URLs only allow HTTP/S; all card and historical text is escaped
   const h = await harness({ me: { case: caseItem('c') } });
   for (const url of ['javascript:alert(1)', 'data:text/html,x', 'blob:https://example.test/id', '#', 'https://user:password@example.test', '']) assert.equal(h.app.safeFileUrl(url), null);
   assert.equal(h.app.safeFileUrl('/uploads/a'), 'https://example.test/uploads/a');
-  h.app.mergeConversation(h.app.state.conversation, [{ ...message('x'), senderName: '<script>x</script>', body: '管理員已開通線上客服系統。' }], [{ ...file('x'), originalName: '<img>', uploadedBy: '<script>', url: 'javascript:alert(1)' }]);
+  h.app.mergeConversation(h.app.state.conversation, [{ ...message('x'), senderName: '<script>x</script>', body: '管理員已開通線上客服系統。' }, { ...message('sys'), senderType: 'system', senderName: '系統', body: '客服訊息紀錄' }], [{ ...file('x'), originalName: '<img>', uploadedBy: '<script>', url: 'javascript:alert(1)' }]);
   const log = h.$('.chat-log', h.app.state.detailRoot);
   assert.equal(log.querySelector('script'), null); assert.equal(log.querySelector('img'), null); assert.equal(log.querySelector('a'), null);
   assert.match(log.textContent, /已開通線上報案系統。/);
+  assert.match(log.textContent, /警政系統/);
+  assert.doesNotMatch(log.textContent, /客服訊息紀錄/);
 });
 
 test('play audio executes directly from clicked current root, not behind workflow queue', async () => {
   const a = caseItem('a'), h = await harness({ cases: [a] }), root = await h.staff();
   await h.app.selectCase(root, a);
+  await h.joinSelected();
   const gate = deferred(); h.app.state.workflow = gate.promise;
   await h.$('[data-action="resumeAudio"]', root).fire('click');
   assert.equal(h.calls.at(-1)[0], 'resumeAudio'); gate.resolve();
 });
 
-test('failed automatic receive shows inline retry and never marks a failed join connected', async () => {
+test('failed manual join shows inline retry and never marks a failed join connected', async () => {
   const a = caseItem('a'), h = await harness({ cases: [a] }), root = await h.staff();
   h.route = (url, init, fallback) => {
     if (url.endsWith('/agora-token')) throw new Error('offline');
     return fallback(url, init);
   };
   await h.app.selectCase(root, a);
+  await h.$('[data-action="joinCall"]', root).fire('click'); await h.flush();
   assert.equal(h.controllers[0].connected, false);
   assert.equal(h.$('[data-action="retryMedia"]', root).hidden, false);
   assert.equal(h.$('[data-slot="recordingNotice"]', root).textContent, '錄影尚未啟用');
@@ -495,6 +510,7 @@ test('failed automatic receive shows inline retry and never marks a failed join 
 test('closed status disconnects selected media without destroying chat or selecting another case', async () => {
   const a = caseItem('a'), h = await harness({ cases: [a] }), root = await h.staff();
   await h.app.selectCase(root, a);
+  await h.joinSelected();
   await h.controllers[0].setDevice('audio', true);
   const chat = h.$('.chat-log', root), player = h.$('[data-slot="localPlayer"]', root);
   h.cases = [caseItem('a', 'closed'), caseItem('other', 'open', 'active')];
@@ -546,7 +562,7 @@ for (const role of ['staff', 'citizen']) {
       test(`${role} disables only ${kind} while ${reconnecting ? 'reconnecting' : 'connected'}, without connect/cleanup/rejoin`, async () => {
         const sdk = mediaSDK(), a = caseItem('a');
         const h = await harness({ sdk: sdk.sdk, cases: [a], me: role === 'citizen' ? { case: a } : {} });
-        if (role === 'staff') await h.app.selectCase(await h.staff(), a);
+        if (role === 'staff') { await h.app.selectCase(await h.staff(), a); await h.joinSelected(); }
         else { await h.$('[data-action="joinCall"]', h.app.state.callRoot).fire('click'); await h.flush(); }
         const session = h.controllers[0], root = h.app.state.callRoot;
         await session.publishBoth(); await h.flush();
@@ -581,6 +597,7 @@ for (const reconnecting of [false, true]) {
     test(`enabling ${kind} still connects before capture while ${reconnecting ? 'reconnecting' : 'connected'}`, async () => {
       const sdk = mediaSDK(), a = caseItem('a'), h = await harness({ sdk: sdk.sdk, cases: [a] });
       await h.app.selectCase(await h.staff(), a);
+      await h.joinSelected();
       const session = h.controllers[0], operations = [];
       if (reconnecting) await sdk.clients[0].emit('connection-state-change', 'RECONNECTING', 'CONNECTED');
       const connect = session.connect.bind(session), setDevice = session.setDevice.bind(session);
@@ -598,6 +615,7 @@ for (const kinds of [[], ['video'], ['audio'], ['video', 'audio']]) {
   test(`local label reflects ${kinds.join('+') || 'no tracks'} before, during and after SDK recovery`, async () => {
     const sdk = mediaSDK(), a = caseItem('a'), h = await harness({ sdk: sdk.sdk, cases: [a] });
     await h.app.selectCase(await h.staff(), a);
+    await h.joinSelected();
     const session = h.controllers[0], root = h.app.state.callRoot;
     for (const kind of kinds) await session.setDevice(kind, true);
     const tracks = [...session.tracks.values()];
@@ -622,7 +640,7 @@ test('queued toggles reject stale case/root, detached roots and non-open cases b
   for (const invalidation of ['case', 'root', 'detached', 'closed', 'pending']) {
     const sdk = mediaSDK(), a = caseItem('a'), b = caseItem('b');
     const h = await harness({ sdk: sdk.sdk, cases: [a, b] }), workspace = await h.staff();
-    await h.app.selectCase(workspace, a); await h.controllers[0].publishBoth();
+    await h.app.selectCase(workspace, a); await h.joinSelected(); await h.controllers[0].publishBoth();
     const root = h.app.state.callRoot, gate = deferred();
     h.app.state.workflow = gate.promise;
     const click = h.$('[data-action="toggleVideo"]', root).fire('click'); await tick();
@@ -642,6 +660,7 @@ for (const recovery of ['retry button', 'remote event']) {
     test(`${recovery} clears only recovered controller errors${workflowFailure ? ', preserving API workflow error' : ''}`, async () => {
       const sdk = mediaSDK(), a = caseItem('a'), h = await harness({ sdk: sdk.sdk, cases: [a] });
       await h.app.selectCase(await h.staff(), a); await h.flush();
+      await h.joinSelected();
       const session = h.controllers[0], root = h.app.state.callRoot, client = sdk.clients[0];
       if (workflowFailure) {
         h.route = () => ({ rawResponse: { ok: false, headers: { get: () => 'application/json' }, json: async () => ({ error: '筆錄 API 工作流程失敗' }) } });
@@ -680,6 +699,7 @@ for (const recovery of ['retry button', 'remote event']) {
 test('rejected controller operation is not cached and audio recovery preserves workflow errors', async () => {
   const sdk = mediaSDK(), a = caseItem('a'), h = await harness({ sdk: sdk.sdk, cases: [a] });
   await h.app.selectCase(await h.staff(), a);
+  await h.joinSelected();
   const session = h.controllers[0], root = h.app.state.callRoot;
   sdk.cameraError = new Error('攝影機權限被拒絕');
   await h.$('[data-action="toggleVideo"]', root).fire('click'); await h.flush();
@@ -702,6 +722,7 @@ test('real failed connect remains visible after controller cleanup and clears on
   const root = await h.staff();
   h.route = (url, init, fallback) => { if (url.endsWith('/agora-token')) throw new Error('offline'); return fallback(url, init); };
   await h.app.selectCase(root, a);
+  await h.$('[data-action="joinCall"]', root).fire('click'); await h.flush();
   assert.equal(h.controllers[0].caseId, null); assert.equal(h.app.state.mediaError, '');
   assert.match(h.$('[data-slot="mediaError"]', root).textContent, /無法連線/);
   h.route = null;
