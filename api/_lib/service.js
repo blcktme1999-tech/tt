@@ -163,10 +163,9 @@ async function ensureDefaultAdmin(client) {
   const existing = await client.from('service_users').select('id, password_hash, role, display_name').eq('username', 'admin').maybeSingle();
   if (existing.error) throw existing.error;
   if (existing.data) {
-    const passwordMatches = existing.data.password_hash && bcrypt.compareSync(config.adminPassword, existing.data.password_hash);
-    if (passwordMatches && existing.data.role === 'admin') return;
+    if (existing.data.password_hash && existing.data.role === 'admin') return;
     const updated = await client.from('service_users').update({
-      password_hash: passwordMatches ? existing.data.password_hash : passwordHash,
+      password_hash: existing.data.password_hash || passwordHash,
       role: 'admin',
       display_name: existing.data.display_name || '系統管理員'
     }).eq('id', existing.data.id);
