@@ -75,8 +75,19 @@ function rewriteAgencyLinks(html) {
 }
 
 function agencyMenuHtml() {
-  return pages.slice(1)
-    .map(([slug, title]) => ` <li><a href="/agency/${slug}" title="${title}">${title}</a></li>`)
+  const mainPages = pages.slice(1, 9);
+  const unitPages = pages.slice(9);
+
+  return mainPages
+    .map(([slug, title]) => {
+      const item = ` <li><a href="/agency/${slug}" title="${title}">${title}</a>`;
+      if (slug !== 'unit-duties.html') return `${item}</li>`;
+
+      const children = unitPages
+        .map(([childSlug, childTitle]) => ` <li><a href="/agency/${childSlug}" title="${childTitle}">${childTitle}</a></li>`)
+        .join('\n');
+      return `${item}\n <ul>\n${children}\n </ul>\n </li>`;
+    })
     .join('\n');
 }
 
@@ -96,14 +107,19 @@ async function rebuildPages() {
 function rewriteHomeMenu() {
   const indexPath = path.join(root, 'index.html');
   let html = rewriteAgencyLinks(fs.readFileSync(indexPath, 'utf8'));
-  const agencyMenuPattern = /<a href=(?:https:\/\/www\.cib\.npa\.gov\.tw\/ch\/app\/folder\/17|\/agency\/) title=機關簡介>\s*機關簡介 <\/a>\s*<ul class="equal-height-thumbnail sf-hidden">[\s\S]*?<\/ul>/;
-  const replacement = `<a href=/agency/ title=機關簡介>\n 機關簡介 </a>\n <ul class="equal-height-thumbnail sf-hidden">\n${agencyMenuHtml()}\n </ul>`;
+  const start = html.indexOf('<a href=/agency/ title=機關簡介>');
+  const replacement = `<a href=/agency/ title=機關簡介>\n 機關簡介 </a>\n <ul class="equal-height-thumbnail cib-service-menu cib-agency-menu sf-hidden">\n${agencyMenuHtml()}\n </ul>`;
 
-  if (!agencyMenuPattern.test(html)) {
+  if (start < 0) {
     throw new Error('Could not find agency menu block in index.html');
   }
 
-  html = html.replace(agencyMenuPattern, replacement);
+  const end = html.indexOf('\n </li>\n <li class=menu-dropdown-icon>', start);
+  if (end < 0) {
+    throw new Error('Could not find agency menu block boundary in index.html');
+  }
+
+  html = `${html.slice(0, start)}${replacement}${html.slice(end)}`;
   fs.writeFileSync(indexPath, html, 'utf8');
 }
 
