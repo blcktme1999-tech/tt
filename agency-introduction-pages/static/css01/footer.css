@@ -1,0 +1,60 @@
+@charset "utf-8";
+/* CSS Document */
+
+footer .info p {
+    padding: 2px 0;
+    margin: 0;
+    color: #b9b9b9;
+    letter-spacing: 1px;
+    font-size: 95%;
+}
+
+footer .info p a {
+    color: #ffd504;
+}
+
+footer .info p a:hover {
+    color: #16bcfb;
+}
+
+footer .right ul {
+    padding: 0;
+    list-style-type: none;  
+     clear: both;
+}
+footer .right ul li {
+    float: left;
+    text-align: center;
+    margin-right: 10px;
+    padding: 5px 0;
+}
+footer .right ul li a {
+    display: block;
+    text-decoration: none;
+}
+footer .right ul li a:hover p {
+    color: #FFEB3B;
+}
+@media screen and (min-width: 992px) {
+footer .right {
+    position: absolute;
+    right: 10px;
+    bottom: 0;    
+}
+footer .right ul {
+    float: right;
+    margin: 0 0 5px 0;
+   
+}
+    }
+@media screen and (max-width: 992px) {
+footer .right ul {
+    float: left;
+    margin: 0 0;
+}
+    }
+@media screen and (min-width: 767px) {
+footer .info {
+    padding: 10px 0 10px 65px;
+}
+}

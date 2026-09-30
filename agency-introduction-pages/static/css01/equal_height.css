@@ -1,0 +1,96 @@
+/*equal-height-thumbnail */
+.equal-height-thumbnail {
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: flex;
+  
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  
+  margin: 0;
+  padding: 0;
+	list-style-type: none;
+}
+
+
+body .equal-height-thumbnail li .box {
+    background: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 1px 1px rgba(0,0,0,0.1);
+    height: 100%;
+    padding: 8px;
+}
+
+body .equal-height-thumbnail li a {
+    display: block;
+}
+
+body .equal-height-thumbnail figure {
+  display: block;
+  margin: 0;
+  padding: 0;
+}
+.equal-height-thumbnail figure img{ width:100%;}
+.caption { padding: 2%;}
+
+
+/*equal-columns-row */
+.equal-columns-row {
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: flex;
+}
+.equal-height-columns {
+  background: #FFF;
+  width: 100%;
+  padding: 0 2%;
+}
+.columns-aside {
+  background: #e2e2e2;
+  width: 16%;
+}
+
+.equal-columns-row h2{ padding-top:10px;}
+
+
+/*columns-vertically-center */
+.columns-vertically-center {
+  display: flex;
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  
+  flex-direction: row;
+  flex-wrap: wrap;
+  
+  -webkit-flex-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  
+  background: #FFF;
+}
+.columns-center {
+  width: 50%;
+  padding: 0;
+  background: #FFF;
+  text-align: center;
+}
+.columns-center figure {
+  padding: 10px;
+  display: block;
+  margin: 0
+}
+.columns-center figure img {
+  max-width: 100%;
+}
+@media only screen and (max-width: 767px) {
+
+.pagewidth{ padding:0}
+.equal-height-thumbnail li {
+  /* width: 46.5% */
+}
+
+.equal-columns-row{ flex-direction: column ;}
+.equal-height-columns{ width:auto }
+
+}
+</style>

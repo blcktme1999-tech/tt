@@ -1,0 +1,230 @@
+@charset "utf-8";
+/* CSS Document */
+.ed_txt {
+  padding: 0 5px;
+}
+.ed_model03 .ed_txt {
+  padding: 0 0 0 10px;
+}
+.ed_title01 {
+  font-size: 115%;
+  font-weight: bold;
+  padding: 5px;
+  margin: 10px 0 0 0;
+}
+.ed_title02 {
+  text-align: center;
+  font-size: 120%;
+  font-weight: bold;
+  padding: 5px 0;
+}
+.ed_title03{font-size: 115%;font-weight: bold;padding: 10px 5px;}
+.ed_pic_left img, .ed_pic_right img, .ed_pic img {
+  max-width: 100%;
+  width: 100%;
+}
+.ed_pic_left, .ed_pic_right {
+  max-width: 400px;
+  padding: 5px;
+  border: 1px #cecece solid;
+  margin: 5px 10px;
+}
+
+.ed_pic_full {
+    width: 100%;
+    padding: 5px;
+    border: 1px #cecece solid;
+    margin: 10px 0;
+}
+
+.ed_pic_full img,.ed_pic_half img {
+    width: 100%;
+}
+.ed_pic_left {
+  float: left;
+}
+
+.ed_model09 .ed_pic_left {
+    margin: 0 10px 5px 5px;
+}
+
+.ed_model09 .ed_pic_right {
+    margin: 0 10px 5px 0;
+}
+.ed_pic_right {
+  float: right;
+}
+.ed_model04 .ed_flex_box{
+    display: -webkit-flex;
+    display:flex;
+    -webkit-justify-content:center;
+    justify-content:center;
+    -webkit-align-items:flex-start;
+    align-items:flex-start;
+}
+.ed_model04 .box {
+  width: 100%;
+  padding: 10px;
+  max-width: 400px;
+}
+.ed_model11 {
+    display: -webkit-flex;
+    display: flex;
+    -webkit-align-items: flex-start;
+    align-items: flex-start;
+}
+.ed_model11 .left_box{text-align: center;}
+.ed_model11 .left_box .ed_pic_left{
+    width: 350px;
+    float: none;
+    text-align: center;
+}
+.ed_model11 .left_box .ed_pic_left img{width: 100%;}
+.ed_model12 .item01, .ed_model13 .item02, .ed_model14 .item03, .ed_model15 .item04 {
+	position: relative;
+	line-height: 150%;
+	/* margin-top: 10px; */
+}
+.ed_model12 .item01 {
+    margin-left: 4em;
+}
+.ed_model12 .item01 p,.ed_model13 .item02 p,.ed_model14 .item03 p,.ed_model15 .item04 p {
+    padding: 0;
+    margin: 0;
+    text-align: right;
+    position: absolute;
+    font-weight: inherit;
+    color: #000;
+    font-size: 95%;
+}
+.ed_model12 .item01 p {
+    width: 5em;
+    left: -5em;
+}
+.ed_model13 .item02 p {
+    width: 5em;
+    left: -5.5em;
+}
+.ed_model13 .item02 {
+    margin-left: 6.5em;
+}
+.ed_model14 .item03 {
+        margin-left: 8em;
+}
+.ed_model14 .item03 p {
+    width: 5em;
+    left: -5.5em;
+}
+.ed_model15 .item04 {
+    margin-left: 9.5em;
+}
+.ed_model15 .item04 p {
+    width: 5.5em;
+    left: -5.8em;
+}
+.ed_model16 ul.item05 {
+        margin: 10px 0 0 8.5em;
+}
+
+.editor hr {
+  clear: both;
+  display: inline-block;
+  width: 100%;
+  margin: 0 0;
+}
+/*TABLE*/
+.ed_table {
+    width: 100%;
+}
+.ed_table td:before {
+  display: none;
+}
+.ed_table th, .ed_table td {
+  display: table-cell;
+  padding: 0.25em 0.5em;
+}
+.ed_table th:first-child, .ed_table td:first-child {
+  padding-left: 0;
+}
+.ed_table th:last-child, .ed_table td:last-child {
+  padding-right: 0;
+}
+ .ed_table tr:nth-of-type(2n) {
+    background: #eee;
+  }
+.ed_table th, .ed_table td {
+  padding: 1em !important;
+  border-left: 1px #fff solid;
+}
+
+.ed_table th:nth-child(1), .ed_table td:nth-child(1) {
+    border-left: none;
+}
+
+.ed_table th {
+    text-align: center;
+    background-color: #656565;
+    color: #fff;
+}
+.ed_table tr th.th_title{
+    background-color: #d4d4d4;
+    color: #000;
+    display: table-cell;
+    text-align: center;
+}
+.ed_pc_center {
+    text-align: center;
+}
+.ed_model10 .left_box,.ed_model10 .right_box{float: left;}
+.ed_model10 .left_box {    
+    width: 60%;
+}
+.ed_model10 .right_box {
+    width: 40%;
+}
+
+.ed_model10 .right_box .ed_pic_left {
+    max-width: 200px;
+    margin: 5px 10px 0 10px;
+}
+
+.ed_flex_box {
+    display: flex;
+    vertical-align: middle;
+    position: relative;
+}
+.ed_model12 .ed_pic img {
+    padding: 5px;
+    border: 1px #cecece solid;
+}
+
+.ed_model12 .ed_pic {
+    padding: 5px;
+}
+.ed_model12 .ed_pic .ed_txt{
+    padding: 5px;
+    text-align: center;
+}
+/*清單*/
+.ed_list {
+    padding: 5px 0;
+}
+.ed_list ul li,.ed_list ol li {
+    padding: 3px 0;
+}
+.ed_list02 ul ul {padding-inline-start: 1.1em;margin: 5px 0;}
+.ed_list02 ul li,.ed_list02 ol li {
+    padding: 3px 0;
+    font-weight: bold;
+}
+
+.ed_list02 ul li li,.ed_list02 ol li li {font-weight: normal;}
+
+.ed_list02 ul li li li,.ed_list02 ol li li li {
+    list-style-type: inherit;
+    font-size: 95%;
+}
+
+.ed_list02 ul li li li li {
+    list-style-type: circle;
+}

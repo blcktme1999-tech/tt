@@ -1,0 +1,8 @@
+footer .right ul li a {
+    color: #fff;
+}
+@media screen and (min-width: 767px) {
+footer .info {
+    padding: 10px 0 10px 0 !important;
+}
+}
