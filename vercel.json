@@ -22,6 +22,18 @@
       "destination": "/service.html"
     },
     {
+      "source": "/agency",
+      "destination": "/agency-introduction-pages/index.html"
+    },
+    {
+      "source": "/agency/",
+      "destination": "/agency-introduction-pages/index.html"
+    },
+    {
+      "source": "/agency/:path*",
+      "destination": "/agency-introduction-pages/:path*"
+    },
+    {
       "source": "/service/:path*",
       "destination": "/public/:path*"
     }
