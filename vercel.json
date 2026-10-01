@@ -34,6 +34,14 @@
       "destination": "/agency-introduction-pages/:path*"
     },
     {
+      "source": "/announcements",
+      "destination": "/announcements/index.html"
+    },
+    {
+      "source": "/announcements/",
+      "destination": "/announcements/index.html"
+    },
+    {
       "source": "/service/:path*",
       "destination": "/public/:path*"
     }

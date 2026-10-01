@@ -18,6 +18,7 @@ const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const AGENCY_DIR = path.join(ROOT, 'agency-introduction-pages');
+const ANNOUNCEMENTS_DIR = path.join(ROOT, 'announcements');
 const AGORA_APP_ID = process.env.AGORA_APP_ID || '';
 const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || '';
 const AGORA_TOKEN_TTL_SECONDS = Number(process.env.AGORA_TOKEN_TTL_SECONDS || 60 * 60);
@@ -115,9 +116,14 @@ app.use(sessionMiddleware);
 app.use('/uploads', express.static(UPLOAD_DIR));
 app.use('/public', express.static(PUBLIC_DIR));
 app.use('/agency', express.static(AGENCY_DIR));
+app.use('/announcements', express.static(ANNOUNCEMENTS_DIR));
 
 app.get(['/agency', '/agency/'], (_req, res) => {
   res.sendFile(path.join(AGENCY_DIR, 'index.html'));
+});
+
+app.get(['/announcements', '/announcements/'], (_req, res) => {
+  res.sendFile(path.join(ANNOUNCEMENTS_DIR, 'index.html'));
 });
 
 app.get(['/service', '/service/'], (_req, res) => {
