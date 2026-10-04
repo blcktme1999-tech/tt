@@ -50,6 +50,14 @@
       "destination": "/wanted/index.html"
     },
     {
+      "source": "/forensics",
+      "destination": "/forensics/index.html"
+    },
+    {
+      "source": "/forensics/",
+      "destination": "/forensics/index.html"
+    },
+    {
       "source": "/service/:path*",
       "destination": "/public/:path*"
     }

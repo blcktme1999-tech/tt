@@ -125,3 +125,4 @@ function rewriteHomeMenu() {
 
 await rebuildPages();
 rewriteHomeMenu();
+await import('./rewrite-local-home-links.mjs?agency=' + Date.now());

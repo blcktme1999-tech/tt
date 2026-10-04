@@ -33,11 +33,19 @@ function replacementVariants(url) {
     .map((from) => [from, local]);
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function replaceExactUrl(output, from, to) {
+  return output.replace(new RegExp(`${escapeRegExp(from)}(?![A-Za-z0-9])`, 'g'), to);
+}
+
 function rewriteAnnouncementLinks(html) {
   let output = html;
   for (const url of localByUrl.keys()) {
     for (const [from, to] of replacementVariants(url)) {
-      output = output.split(from).join(to);
+      output = replaceExactUrl(output, from, to);
     }
   }
   return output;
@@ -107,4 +115,5 @@ console.log('1542369585750085632.pdf -> announcements/personal-data.pdf');
 
 rewriteHomeAnnouncementMenu();
 rewriteExistingHtmlFiles();
+await import('./rewrite-local-home-links.mjs?announcements=' + Date.now());
 console.log('announcement links rewritten');
