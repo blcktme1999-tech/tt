@@ -312,7 +312,7 @@ function renderMedia(root, caseItem) {
     <div class="media-grid"><div class="media-controls">
       <div data-slot="videoGrid" class="video-grid video-pair">
         <div class="video-tile"><div data-slot="localVideoSlot" class="video-slot"><div data-slot="localPlayer" class="video-player"></div></div><div data-slot="localLabel" class="video-label">我方（未開啟鏡頭／麥克風）</div></div>
-        <div data-slot="remotePlaceholder" class="video-tile"><div class="video-slot video-placeholder"><p>${staff ? '等待民眾傳送視訊' : '等待客服加入'}</p></div><div class="video-label">對方（尚未傳送）</div></div>
+        <div data-slot="remotePlaceholder" class="video-tile"><div class="video-slot video-placeholder"><p>${staff ? '等待民眾傳送視訊' : '視訊報案鏡頭啟動中'}</p></div><div class="video-label">對方（尚未傳送）</div></div>
       </div>
       <p data-slot="callStatus" class="call-status" role="status" aria-live="polite"></p>
       <p data-slot="recordingNotice" class="recording-notice">錄影尚未啟用</p>
