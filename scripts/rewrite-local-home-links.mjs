@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const targetDirs = ['agency-introduction-pages', 'announcements', 'wanted', 'forensics', 'public-info'];
+const targetDirs = ['agency-introduction-pages', 'announcements', 'wanted', 'forensics', 'public-info', 'public-services'];
 const targetFiles = ['index.html'];
 
 function rewriteHomeLinks(html) {

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const targetDirs = ['agency-introduction-pages', 'announcements', 'wanted', 'forensics', 'public-info'];
+const targetDirs = ['agency-introduction-pages', 'announcements', 'wanted', 'forensics', 'public-info', 'public-services'];
 const targetFiles = ['index.html'];
 const skippedTitles = [
   '重要緊急查緝專案',
@@ -17,7 +17,13 @@ const skippedTitles = [
   '支付或接受之補助',
   '中長程個案計畫「112年至115年警察科技偵查躍升方案」',
   '影音專區',
-  '性別主流化專區'
+  '性別主流化專區',
+  '檢舉賄選信箱',
+  '檢肅貪瀆信箱',
+  '165反詐騙報案／檢舉',
+  '行政類',
+  '保全業申請進度查詢',
+  'FB CIB局長室'
 ];
 
 function escapeRegExp(value) {

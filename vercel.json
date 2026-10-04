@@ -66,6 +66,14 @@
       "destination": "/public-info/index.html"
     },
     {
+      "source": "/public-services",
+      "destination": "/public-services/index.html"
+    },
+    {
+      "source": "/public-services/",
+      "destination": "/public-services/index.html"
+    },
+    {
       "source": "/service/:path*",
       "destination": "/public/:path*"
     }
