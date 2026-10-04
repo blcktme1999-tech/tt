@@ -258,10 +258,14 @@ body.police-service {
   border-bottom: 4px solid #8bbde5;
   background: radial-gradient(ellipse at 85% 0, rgb(90 157 221 / 24%), transparent 55%), linear-gradient(115deg, #082c58, #124b85);
 }
-.police-service .service-brand { display: flex; align-items: center; gap: clamp(16px, 3vw, 32px); min-width: 0; }
+.police-service .service-brand { display: flex; align-items: center; gap: clamp(16px, 3vw, 32px); min-width: 0; color: inherit; text-decoration: none; }
+.police-service .service-brand:hover { color: inherit; text-decoration: none; }
 .police-service .agency-name { margin-bottom: .2rem; font-size: clamp(1rem, 2vw, 1.3rem); letter-spacing: .15em; font-weight: 600; }
 .police-service .app-header h1 { color: #fff; font-size: clamp(1.6rem, 3vw, 2.25rem); letter-spacing: .1em; }
+.police-service .header-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .police-service .header-context { margin: 0; padding: .5rem 1rem; border: 1px solid #6f95bb; border-radius: 999px; font-size: .9rem; color: #e4f1ff; }
+.police-service .official-home-link { background: rgb(255 255 255 / 10%); text-decoration: none; }
+.police-service .official-home-link:hover { background: rgb(255 255 255 / 18%); color: #fff; text-decoration: none; }
 .police-service .brand-top-image { display: block; flex: 0 0 auto; width: auto; height: clamp(54px, 7vw, 88px); max-width: min(42vw, 360px); object-fit: contain; border-radius: 4px; }
 .police-service .emblem-placeholder { display: grid; justify-items: center; gap: 6px; flex: 0 0 auto; text-align: center; }
 .police-service .emblem-placeholder svg { width: 40px; height: 48px; }
@@ -397,6 +401,7 @@ body.police-service {
 
 @media (max-width: 920px) {
   .police-service .app-header { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .police-service .header-actions { justify-content: flex-start; }
   .police-service .header-context { font-size: .8rem; }
   .police-service .case-shell { grid-template-columns: minmax(0, 1fr); }
   .police-service .case-list-card { position: static; }
