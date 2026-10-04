@@ -42,6 +42,14 @@
       "destination": "/announcements/index.html"
     },
     {
+      "source": "/wanted",
+      "destination": "/wanted/index.html"
+    },
+    {
+      "source": "/wanted/",
+      "destination": "/wanted/index.html"
+    },
+    {
       "source": "/service/:path*",
       "destination": "/public/:path*"
     }
