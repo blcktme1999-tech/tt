@@ -58,6 +58,14 @@
       "destination": "/forensics/index.html"
     },
     {
+      "source": "/public-info",
+      "destination": "/public-info/index.html"
+    },
+    {
+      "source": "/public-info/",
+      "destination": "/public-info/index.html"
+    },
+    {
       "source": "/service/:path*",
       "destination": "/public/:path*"
     }

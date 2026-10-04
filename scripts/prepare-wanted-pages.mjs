@@ -14,10 +14,7 @@ const localPages = [
 
 const menuItems = [
   ['檢舉及保護措施', '/wanted/report-protection.html'],
-  ['重要緊急查緝專案', 'https://www.cib.npa.gov.tw/ch/app/wanted/list?module=wanted&id=1889'],
-  ['詐欺車手專區', 'https://www.cib.npa.gov.tw/ch/app/frauddriver/list?module=frauddriver&id=1890'],
   ['失物查尋專刊', '/wanted/lost-items.html'],
-  ['檢舉外逃通緝犯及跨國犯罪', 'https://www.cib.npa.gov.tw/ch/app/globalcase/list?module=globalcase&id=1892'],
   ['通緝犯資料查詢(公告)平臺', '/wanted/criminal-wanted-platform.html']
 ];
 
@@ -28,7 +25,9 @@ function replacementVariants(url) {
   const local = localByUrl.get(url);
   const parsed = new URL(url);
   const relative = parsed.pathname + parsed.search;
-  return [url, url.replaceAll('&', '&amp;'), relative, relative.replaceAll('&', '&amp;')]
+  const variants = [url, url.replaceAll('&', '&amp;')];
+  if (parsed.hostname.endsWith('cib.npa.gov.tw')) variants.push(relative, relative.replaceAll('&', '&amp;'));
+  return variants
     .map((from) => [from, local]);
 }
 
@@ -107,5 +106,6 @@ for (const [slug, title] of localPages) {
 
 rewriteHomeWantedMenu();
 rewriteExistingHtmlFiles();
+await import('./remove-ungrabbed-menu-items.mjs?wanted=' + Date.now());
 await import('./rewrite-local-home-links.mjs?wanted=' + Date.now());
 console.log('wanted links rewritten');

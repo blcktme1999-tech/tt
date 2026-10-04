@@ -21,6 +21,7 @@ const AGENCY_DIR = path.join(ROOT, 'agency-introduction-pages');
 const ANNOUNCEMENTS_DIR = path.join(ROOT, 'announcements');
 const WANTED_DIR = path.join(ROOT, 'wanted');
 const FORENSICS_DIR = path.join(ROOT, 'forensics');
+const PUBLIC_INFO_DIR = path.join(ROOT, 'public-info');
 const AGORA_APP_ID = process.env.AGORA_APP_ID || '';
 const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || '';
 const AGORA_TOKEN_TTL_SECONDS = Number(process.env.AGORA_TOKEN_TTL_SECONDS || 60 * 60);
@@ -121,6 +122,7 @@ app.use('/agency', express.static(AGENCY_DIR));
 app.use('/announcements', express.static(ANNOUNCEMENTS_DIR));
 app.use('/wanted', express.static(WANTED_DIR));
 app.use('/forensics', express.static(FORENSICS_DIR));
+app.use('/public-info', express.static(PUBLIC_INFO_DIR));
 
 app.get(['/agency', '/agency/'], (_req, res) => {
   res.sendFile(path.join(AGENCY_DIR, 'index.html'));
@@ -136,6 +138,10 @@ app.get(['/wanted', '/wanted/'], (_req, res) => {
 
 app.get(['/forensics', '/forensics/'], (_req, res) => {
   res.sendFile(path.join(FORENSICS_DIR, 'index.html'));
+});
+
+app.get(['/public-info', '/public-info/'], (_req, res) => {
+  res.sendFile(path.join(PUBLIC_INFO_DIR, 'index.html'));
 });
 
 app.get(['/service', '/service/'], (_req, res) => {
