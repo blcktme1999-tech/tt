@@ -9,7 +9,8 @@ const targetDirs = [
   'forensics',
   'public-info',
   'public-services',
-  'sitemap'
+  'sitemap',
+  'related-links'
 ];
 const targetFiles = ['index.html'];
 

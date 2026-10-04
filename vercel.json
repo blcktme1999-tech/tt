@@ -82,6 +82,14 @@
       "destination": "/sitemap/index.html"
     },
     {
+      "source": "/related-links",
+      "destination": "/related-links/index.html"
+    },
+    {
+      "source": "/related-links/",
+      "destination": "/related-links/index.html"
+    },
+    {
       "source": "/service/:path*",
       "destination": "/public/:path*"
     }
