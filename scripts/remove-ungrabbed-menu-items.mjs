@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const targetDirs = ['agency-introduction-pages', 'announcements', 'wanted', 'forensics', 'public-info', 'public-services'];
+const targetDirs = ['agency-introduction-pages', 'announcements', 'wanted', 'forensics', 'public-info', 'public-services', 'sitemap'];
 const targetFiles = ['index.html'];
 const skippedTitles = [
   '重要緊急查緝專案',
@@ -23,7 +23,9 @@ const skippedTitles = [
   '165反詐騙報案／檢舉',
   '行政類',
   '保全業申請進度查詢',
-  'FB CIB局長室'
+  'FB CIB局長室',
+  '雙語詞彙',
+  'English'
 ];
 
 function escapeRegExp(value) {

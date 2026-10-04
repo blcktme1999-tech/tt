@@ -74,6 +74,14 @@
       "destination": "/public-services/index.html"
     },
     {
+      "source": "/sitemap",
+      "destination": "/sitemap/index.html"
+    },
+    {
+      "source": "/sitemap/",
+      "destination": "/sitemap/index.html"
+    },
+    {
       "source": "/service/:path*",
       "destination": "/public/:path*"
     }

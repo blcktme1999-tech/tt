@@ -12,8 +12,7 @@ const pages = [
   ['notices.html', '公告事項', 'https://www.cib.npa.gov.tw/ch/app/news/list?module=news&id=1887'],
   ['open-data-policy.html', '政府網站資料開放宣告', 'https://www.cib.npa.gov.tw/ch/app/artwebsite/view?module=artwebsite&id=1448&serno=4a4f6936-a1ab-45d2-afe5-c5018f726b10'],
   ['privacy-security-policy.html', '隱私權及網站安全政策', 'https://www.cib.npa.gov.tw/ch/app/artwebsite/view?module=artwebsite&id=1449&serno=869b22e6-b34d-4795-aca1-224cddd2f634'],
-  ['faq.html', '常見問答', 'https://www.cib.npa.gov.tw/ch/app/faq/list?module=faq&id=18233'],
-  ['bilingual.html', '雙語詞彙', 'https://www.cib.npa.gov.tw/ch/app/folder/18240']
+  ['faq.html', '常見問答', 'https://www.cib.npa.gov.tw/ch/app/faq/list?module=faq&id=18233']
 ];
 
 const documents = [
