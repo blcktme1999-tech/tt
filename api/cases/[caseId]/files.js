@@ -6,7 +6,7 @@ async function handler(req, res) {
     const client = getSupabase();
     const access = await requireCaseAccess(req, res, client, req.query.caseId);
     if (!access) return;
-    if (access.caseRow.status !== 'open') return json(res, 400, { error: '案件尚未開通' });
+    if (access.caseRow.status === 'closed') return json(res, 400, { error: '案件已結案' });
 
     if (req.method === 'GET') {
       const result = await client.from('service_files').select('*').eq('case_id', req.query.caseId).order('created_at', { ascending: false });

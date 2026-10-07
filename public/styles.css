@@ -152,12 +152,32 @@ h3 { margin-bottom: .45rem; }
 }
 .case-card.active { border-color: var(--brand); background: #edf5ff; }
 .case-card .meta { color: var(--muted); font-size: .9rem; }
+.case-card-main {
+  display: block;
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+.case-card-main:hover { background: transparent; transform: none; }
+.case-name-row { display: flex; align-items: center; gap: .5rem; }
+.case-add-spacer { flex: 1 1 auto; }
+.case-add-button {
+  margin-top: .55rem;
+  padding: .45rem .65rem;
+  border: 1px solid #b7cbe3;
+  background: #eaf3ff;
+  color: var(--brand-strong);
+  font-size: .85rem;
+}
 
 .case-detail { display: grid; gap: 1rem; }
 .empty-state { color: var(--muted); text-align: center; }
 .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
 .summary-box { border: 1px solid var(--line); border-radius: 6px; padding: .85rem; background: #f8fafc; }
 .summary-box strong { display: block; margin-top: .25rem; }
+.summary-wide { grid-column: 1 / -1; }
 .status { color: var(--success); font-weight: 700; }
 .status.pending { color: var(--accent); }
 .status.active { color: var(--danger); }
@@ -200,6 +220,8 @@ h3 { margin-bottom: .45rem; }
 .admin-grid { display: grid; grid-template-columns: minmax(280px, 420px) minmax(0, 1fr); gap: 1rem; margin-top: 1rem; }
 .table-list { display: grid; gap: .65rem; }
 .user-row { border: 1px solid var(--line); border-radius: 6px; padding: .8rem; background: #fff; }
+.citizen-case-list { margin-bottom: 1rem; }
+.citizen-case-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; }
 
 @media (max-width: 920px) {
   .app-header { align-items: stretch; flex-direction: column; }
@@ -334,6 +356,12 @@ body.police-service {
 .police-service .case-card:hover { background: #eaf3fc; color: var(--ink); border-color: #7a9dc0; }
 .police-service .case-card.active { background: #e8f2fd; color: #16375b; border-color: #14559b; box-shadow: inset 3px 0 #14559b; }
 .police-service .case-card .meta { margin-top: 5px; font-size: .8rem; font-weight: 400; }
+.police-service .case-card-main { min-height: 0; }
+.police-service .case-card-main:focus-visible { outline-offset: 5px; }
+.police-service .case-add-button { min-height: 36px; border-radius: 999px; font-weight: 700; }
+.police-service .citizen-case-list { padding: clamp(16px, 1.6vw, 24px); }
+.police-service .citizen-case-list .section-heading { margin-bottom: 12px; }
+.police-service .citizen-case-cards .case-card { box-shadow: none; }
 .police-service :is(.status-badge, .case-card .status) { display: inline-block; width: fit-content; padding: 2px 8px; border: 1px solid #b8d9cb; border-radius: 999px; font-size: .75rem; font-weight: 700; background: #eaf6ef; color: #146447; }
 .police-service :is(.status-badge, .case-card .status):is(.pending, [data-status="pending"]) { color: #784107; border-color: #e0c38d; background: #fff5df; }
 .police-service :is(.status-badge, .case-card .status):is(.active, [data-status="active"]) { color: #9b2424; border-color: #ebbbbb; background: #fff0ef; }
@@ -426,6 +454,7 @@ body.police-service {
   .police-service .video-slot { min-height: 220px; aspect-ratio: 4 / 3; }
   .police-service .video-placeholder { min-height: 220px; }
   .police-service .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .police-service .summary-wide { grid-column: 1 / -1; }
   .police-service .button-row > button { flex-basis: 100%; }
   .police-service .chat-log { height: 320px; }
   .police-service .case-tools { grid-template-columns: minmax(0, 1fr); }

@@ -123,6 +123,10 @@ function publicCase(row) {
   return {
     id: row.id,
     citizenName: row.citizen_name || row.citizenName,
+    nationalId: row.national_id || row.nationalId || row.agoraChannel,
+    caseType: row.case_type || row.caseType || '',
+    caseTitle: row.case_title || row.caseTitle || '',
+    caseSummary: row.case_summary || row.caseSummary || '',
     agoraChannel: row.national_id || row.agoraChannel,
     status: row.status,
     interviewStatus: row.interview_status || row.interviewStatus || 'idle',
@@ -208,7 +212,9 @@ async function requireCaseAccess(req, res, client, caseId) {
     json(res, 404, { error: '找不到案件' });
     return null;
   }
-  if (session.user || session.caseId === caseId) return { session, caseRow: result.data };
+  const citizenOwnsCase = session.citizenName && session.nationalId &&
+    result.data.citizen_name === session.citizenName && result.data.national_id === session.nationalId;
+  if (session.user || session.caseId === caseId || citizenOwnsCase) return { session, caseRow: result.data };
   json(res, 403, { error: '無權存取此案件' });
   return null;
 }

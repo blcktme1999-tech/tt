@@ -14,22 +14,22 @@ module.exports = async function handler(req, res) {
     const nationalId = String(query.get('nationalId') || '').trim().toUpperCase();
     if (citizenName.length < 2 || nationalId.length < 6) return json(res, 400, { error: '請輸入姓名與身分證/居留證號' });
 
-    const found = await client.from('service_cases').select('*').eq('citizen_name', citizenName).eq('national_id', nationalId).limit(1);
+    const found = await client.from('service_cases').select('*').eq('citizen_name', citizenName).eq('national_id', nationalId).order('created_at', { ascending: false });
     if (found.error) throw found.error;
-    let caseRow = (found.data || [])[0] || null;
+    let cases = found.data || [];
+    let caseRow = cases[0] || null;
 
     if (!caseRow) {
-      const inserted = await client.from('service_cases').insert({ citizen_name: citizenName, national_id: nationalId, status: 'pending' }).select('*').single();
+      const inserted = await client.from('service_cases').insert({ citizen_name: citizenName, national_id: nationalId, status: 'open', approved_at: new Date().toISOString() }).select('*').single();
       if (inserted.error) throw inserted.error;
       caseRow = inserted.data;
-      const message = await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '警政系統', body: '民眾已送出線上報案開通申請，等待審核。' });
+      cases = [caseRow];
+      const message = await client.from('service_messages').insert({ case_id: caseRow.id, sender_type: 'system', sender_name: '警政系統', body: '民眾已進入線上報案服務。' });
       if (message.error) throw message.error;
     }
 
-    if (caseRow.status !== 'open') return json(res, 200, { status: 'pending', case: publicCase(caseRow) });
-
-    res.setHeader('Set-Cookie', createSessionCookie({ caseId: caseRow.id, citizenName }));
-    json(res, 200, { status: 'open', case: publicCase(caseRow) });
+    res.setHeader('Set-Cookie', createSessionCookie({ caseId: caseRow.id, citizenName, nationalId }));
+    json(res, 200, { status: 'open', case: publicCase(caseRow), cases: cases.map(publicCase) });
   } catch (error) {
     json(res, 500, { error: error.message || '申請開通失敗' });
   }

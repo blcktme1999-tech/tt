@@ -6,7 +6,7 @@ async function handler(req, res) {
     const client = getSupabase();
     const access = await requireCaseAccess(req, res, client, req.query.caseId);
     if (!access) return;
-    if (access.caseRow.status !== 'open') return json(res, 400, { error: '案件尚未開通' });
+    if (access.caseRow.status === 'closed') return json(res, 400, { error: '案件已結案' });
     const body = await getJsonBody(req);
     const interviewStatus = body.active ? 'active' : 'idle';
     const updated = await client.from('service_cases').update({ interview_status: interviewStatus }).eq('id', req.query.caseId).select('*').single();

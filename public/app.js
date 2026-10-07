@@ -4,6 +4,7 @@
 // an authenticated session, message, upload or call when the server is offline.
 const state = {
   me: null, currentCase: null, cases: [], detailRoot: null, callRoot: null,
+  citizenCases: [],
   videoSession: null, mediaError: '', mediaPending: false,
   conversation: null, viewVersion: 0, caseRevision: 0,
   workflow: Promise.resolve(), caseLoad: null,
@@ -74,6 +75,16 @@ function displayCaseNumber(caseItem) {
   return `${year - 1911}年度受理字${serial}號`;
 }
 
+function displayCaseField(value) {
+  const text = String(value || '').trim();
+  return text || '未填寫';
+}
+
+function caseSummaryPreview(caseItem) {
+  const text = displayCaseField(caseItem?.caseSummary);
+  return text.length > 30 ? `${text.slice(0, 30)}…` : text;
+}
+
 function errorText(error) {
   return error?.message || '操作失敗，請稍後再試。';
 }
@@ -122,7 +133,6 @@ function activatePanel(panelId) {
 
 function caseStatus(caseItem) {
   if (caseItem.status === 'closed') return '已結案';
-  if (caseItem.status !== 'open') return '待審核';
   return caseItem.interviewStatus === 'active' ? '筆錄中' : '已開通';
 }
 
@@ -162,22 +172,101 @@ function renderCaseList(root, cases, isAdmin) {
   const scrollTop = list.scrollTop;
   list.innerHTML = visible.length ? '' : '<p class="muted">目前沒有符合條件的案件。</p>';
   visible.forEach((caseItem) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `case-card ${state.currentCase?.id === caseItem.id ? 'active' : ''}`;
-    button.setAttribute('aria-pressed', String(state.currentCase?.id === caseItem.id));
-    button.innerHTML = `<strong>${escapeHtml(caseItem.citizenName)}</strong>
-      <div class="meta"><span class="status ${statusClass(caseItem)}">${caseStatus(caseItem)}</span> · ${escapeHtml(formatTime(caseItem.createdAt))}</div>
-      <div class="meta">${escapeHtml(caseItem.id)}</div>`;
-    button.addEventListener('click', () => selectCase(root, caseItem, isAdmin).catch((error) => reportActionError(error, root)));
-    list.appendChild(button);
+    const card = document.createElement('article');
+    card.className = `case-card ${state.currentCase?.id === caseItem.id ? 'active' : ''}`;
+    card.innerHTML = `<button type="button" class="case-card-main" aria-pressed="${state.currentCase?.id === caseItem.id}">
+        <span class="case-name-row"><strong>${escapeHtml(caseItem.citizenName)}</strong><span class="case-add-spacer"></span></span>
+        <div class="meta"><span class="status ${statusClass(caseItem)}">${caseStatus(caseItem)}</span> · ${escapeHtml(formatTime(caseItem.createdAt))}</div>
+        <div class="meta">${escapeHtml(caseItem.id)}</div>
+      </button>
+      <button type="button" class="case-add-button" data-action="createRelatedCase">＋新增案件</button>`;
+    $('.case-card-main', card).addEventListener('click', () => selectCase(root, caseItem, isAdmin).catch((error) => reportActionError(error, root)));
+    $('[data-action="createRelatedCase"]', card).addEventListener('click', () => renderCreateRelatedCase(root, caseItem, isAdmin));
+    list.appendChild(card);
   });
   list.scrollTop = scrollTop;
+}
+
+function renderCreateRelatedCase(root, sourceCase, isAdmin = false) {
+  const summary = $('[data-slot="caseSummary"]', root);
+  const conversation = $('[data-slot="conversation"]', root);
+  const media = $('[data-slot="media"]', root);
+  if (!summary || !conversation || !media) return;
+  clearInterval(state.messagePollTimer);
+  for (const node of [conversation, media]) { node.replaceChildren(); node.classList.add('hidden'); }
+  summary.classList.remove('hidden', 'empty-state');
+  summary.dataset.caseId = '';
+  summary.innerHTML = `<div class="section-heading"><h2>新增案件</h2></div>
+    <form class="stacked-form create-related-case-form">
+      <label>姓名<input name="citizenName" value="${escapeHtml(sourceCase.citizenName || '')}" required></label>
+      <label>身分證/證件號<input name="nationalId" value="${escapeHtml(sourceCase.nationalId || sourceCase.agoraChannel || '')}" required></label>
+      <label>案件類型<input name="caseType" required></label>
+      <label>案件標題<input name="caseTitle" required></label>
+      <label>案件說明<textarea name="caseSummary" required></textarea></label>
+      <button type="submit">新增案件</button>
+    </form>`;
+  const form = $('.create-related-case-form', summary);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void submitAdminForm(form, async () => {
+      const value = (name) => form.elements.namedItem(name).value;
+      const data = await api('/api/cases', postOptions({
+        citizenName: value('citizenName'),
+        nationalId: value('nationalId'),
+        caseType: value('caseType'),
+        caseTitle: value('caseTitle'),
+        caseSummary: value('caseSummary')
+      }));
+      if (!data.case?.id) throw new Error('新增案件結果不完整，請重新整理確認。');
+      state.caseRevision += 1;
+      state.cases = [data.case, ...state.cases.filter((item) => item.id !== data.case.id)];
+      renderAllCaseLists();
+      inlineNotice(summary, '新增成功', 'createCaseStatus');
+      await selectCaseNow(root, data.case, isAdmin);
+    });
+  });
 }
 
 function renderAllCaseLists() {
   renderCaseList($('#staffWorkspace'), state.cases, false);
   if (state.me?.user?.role === 'admin') renderCaseList($('#adminWorkspace'), state.cases, true);
+  renderCitizenCaseList($('#citizenWorkspace'));
+}
+
+function renderCitizenCaseList(root = $('#citizenWorkspace')) {
+  const list = $('[data-slot="citizenCaseList"]', root);
+  if (!list) return;
+  const cases = state.citizenCases || [];
+  if (!cases.length) { list.innerHTML = ''; return; }
+  list.innerHTML = `<div class="section-heading"><h2>我的案件</h2></div><div class="citizen-case-cards"></div>`;
+  const cards = $('.citizen-case-cards', list);
+  cases.forEach((caseItem) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `case-card citizen-case-card ${state.currentCase?.id === caseItem.id ? 'active' : ''}`;
+    button.setAttribute('aria-pressed', String(state.currentCase?.id === caseItem.id));
+    button.innerHTML = `<strong>${escapeHtml(displayCaseNumber(caseItem))}</strong>
+      <div class="meta"><span class="status ${statusClass(caseItem)}">${caseStatus(caseItem)}</span> · ${escapeHtml(formatTime(caseItem.createdAt))}</div>
+      <div class="meta">${escapeHtml(caseSummaryPreview(caseItem))}</div>`;
+    button.addEventListener('click', () => selectCase(root, caseItem, false).catch((error) => reportActionError(error, root)));
+    cards.appendChild(button);
+  });
+}
+
+async function refreshCitizenCases() {
+  if (state.me?.user || !state.me?.case) return;
+  const session = await api('/api/me');
+  const cases = Array.isArray(session.cases) && session.cases.length ? session.cases : session.case ? [session.case] : [];
+  state.citizenCases = cases;
+  state.me = session;
+  const selected = cases.find((item) => item.id === state.currentCase?.id);
+  if (selected && state.currentCase?.id === selected.id) await applySelectedCase(selected);
+  renderCitizenCaseList($('#citizenWorkspace'));
+}
+
+function startCitizenCasePolling() {
+  clearInterval(state.casePollTimer);
+  state.casePollTimer = setInterval(() => { refreshCitizenCases().catch((error) => showNotice(errorText(error), 'error')); }, 3000);
 }
 
 function isCurrentRoot(caseId, root = state.callRoot) {
@@ -186,7 +275,7 @@ function isCurrentRoot(caseId, root = state.callRoot) {
 
 function requireOpenRoot(caseId, root) {
   if (!isCurrentRoot(caseId, root)) throw new Error('案件已切換，請在目前案件重新操作。');
-  if (state.currentCase.status !== 'open') throw new Error('案件尚未開通或已結案，無法使用視訊。');
+  if (state.currentCase.status === 'closed') throw new Error('案件已結案，無法使用視訊。');
 }
 
 function selectCase(root, caseItem, isAdmin = false) {
@@ -217,7 +306,7 @@ async function selectCaseNow(root, caseItem, isAdmin = false) {
   state.mediaError = '';
   root.classList.remove('hidden');
   if (root.id === 'citizenWorkspace' && !$('[data-slot="caseSummary"]', root)) {
-    root.innerHTML = '<div class="case-detail"><div data-slot="caseSummary" class="surface"></div><div data-slot="media" class="surface"></div><div data-slot="conversation" class="surface"></div></div>';
+    root.innerHTML = '<div data-slot="citizenCaseList" class="surface citizen-case-list"></div><div class="case-detail"><div data-slot="caseSummary" class="surface"></div><div data-slot="media" class="surface"></div><div data-slot="conversation" class="surface"></div></div>';
   }
   renderCaseDetail(root, caseItem, isAdmin);
   renderAllCaseLists();
@@ -225,7 +314,11 @@ async function selectCaseNow(root, caseItem, isAdmin = false) {
 }
 
 async function renderCitizenWorkspace(caseItem) {
-  return selectCase($('#citizenWorkspace'), caseItem, false);
+  const cases = Array.isArray(caseItem) ? caseItem : [caseItem].filter(Boolean);
+  state.citizenCases = cases;
+  const selected = state.currentCase && cases.find((item) => item.id === state.currentCase.id) || cases[0];
+  renderCitizenCaseList($('#citizenWorkspace'));
+  return selected ? selectCaseNow($('#citizenWorkspace'), selected, false) : false;
 }
 
 function openCaseDetail(root, _cases, caseItem, isAdmin) {
@@ -245,6 +338,9 @@ function renderCaseDetail(root, caseItem, isAdmin) {
       <div class="summary-box">身分證字號<strong>${escapeHtml(caseItem.nationalId || caseItem.agoraChannel || '未提供')}</strong></div>
       <div class="summary-box">狀態<strong data-slot="caseStatus"></strong></div>
       <div class="summary-box">建立時間<strong>${escapeHtml(formatTime(caseItem.createdAt))}</strong></div>
+      <div class="summary-box">案件類型<strong>${escapeHtml(displayCaseField(caseItem.caseType))}</strong></div>
+      <div class="summary-box">案件標題<strong>${escapeHtml(displayCaseField(caseItem.caseTitle))}</strong></div>
+      <div class="summary-box summary-wide">案件說明<strong>${escapeHtml(displayCaseField(caseItem.caseSummary))}</strong></div>
     </div>`;
   $('[data-action="approve"]', summary)?.addEventListener('click', (event) => {
     const button = event.currentTarget;
@@ -269,7 +365,7 @@ function updateSummary(caseItem) {
   const badge = $('[data-slot="caseStatus"]', state.detailRoot);
   if (badge) { badge.textContent = caseStatus(caseItem); badge.className = `status ${statusClass(caseItem)}`; }
   const approve = $('[data-action="approve"]', state.detailRoot);
-  if (approve) approve.hidden = caseItem.status !== 'pending';
+  if (approve) approve.hidden = true;
 }
 
 async function applySelectedCase(caseItem) {
@@ -278,7 +374,7 @@ async function applySelectedCase(caseItem) {
   state.currentCase = caseItem;
   updateSummary(caseItem);
   updateConversationControls(state.conversation);
-  if (caseItem.status !== 'open' && state.videoSession?.caseId === caseItem.id) await state.videoSession.disconnect();
+  if (caseItem.status === 'closed' && state.videoSession?.caseId === caseItem.id) await state.videoSession.disconnect();
   renderMediaState();
   // interviewStatus is a badge only, never a reason to select a different case.
 }
@@ -357,14 +453,14 @@ function renderMediaState() {
   const same = session?.caseId === state.currentCase.id;
   const connected = Boolean(same && session.connected);
   const busy = state.mediaPending || Boolean(session?.busy);
-  const open = state.currentCase.status === 'open';
+  const open = state.currentCase.status !== 'closed';
   // Failed connect cleans caseId/root before reporting its error.
   const error = state.mediaError || ((same || session?.caseId === null) && session.lastError ? errorText(session.lastError) : '');
   const placeholder = $('[data-slot="remotePlaceholder"]', root);
   // CSS's .video-tile display rules must not make a hidden waiting tile visible.
   placeholder?.classList.toggle('hidden', Boolean(placeholder.hidden));
   const status = $('[data-slot="callStatus"]', root);
-  if (status) status.textContent = !open ? '案件尚未開通或已結案，視訊未連線。' :
+  if (status) status.textContent = !open ? '案件已結案，視訊未連線。' :
     session?.status === 'disconnecting' ? '正在中斷連線…' :
     same && session.status === 'reconnecting' ? '網路暫時中斷，正在重新連線…' :
     same && session.status === 'connecting' ? '視訊連線中…' :
@@ -430,7 +526,7 @@ async function leaveCall(caseId, markStatement = false) {
 
 async function disconnectCurrent() {
   const caseId = state.currentCase?.id;
-  const citizenActive = !state.me?.user && state.currentCase?.status === 'open' &&
+  const citizenActive = !state.me?.user && state.currentCase?.status !== 'closed' &&
     (state.videoSession?.connected || state.currentCase?.interviewStatus === 'active');
   if (state.videoSession) await state.videoSession.disconnect();
   if (caseId && citizenActive) await updateStatementStatus(caseId, false);
@@ -479,7 +575,7 @@ function renderConversation(root, caseItem) {
   });
   $('.upload-form', root).addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!validConversation(context) || context.uploading || state.currentCase.status !== 'open') return;
+    if (!validConversation(context) || context.uploading || state.currentCase.status === 'closed') return;
     const form = event.currentTarget;
     const input = form.elements.namedItem('file');
     const file = input.files[0];
@@ -500,7 +596,7 @@ function renderConversation(root, caseItem) {
 
 function updateConversationControls(context) {
   if (!validConversation(context)) return;
-  const open = state.currentCase.status === 'open';
+  const open = state.currentCase.status !== 'closed';
   const submit = $('.message-form button[type="submit"]', context.root);
   if (submit) { submit.disabled = context.sending; submit.textContent = context.sending ? '傳送中…' : '送出'; }
   const upload = $('.upload-form button[type="submit"]', context.root);
@@ -508,7 +604,7 @@ function updateConversationControls(context) {
   const input = $('.upload-form input', context.root);
   if (input) input.disabled = context.uploading || !open;
   const status = $('[data-slot="uploadStatus"]', context.root);
-  if (status) status.textContent = open ? '附件會與訊息依時間排列；單檔上限 3 MiB（配合平台請求限制）。' : '案件開通後才可上傳或讀取附件；訊息仍可查看。';
+  if (status) status.textContent = open ? '附件會與訊息依時間排列；單檔上限 3 MiB（配合平台請求限制）。' : '案件已結案，無法上傳附件；訊息仍可查看。';
 }
 
 function eventKey(kind, item) { return `${kind}:${item.id}`; }
@@ -594,7 +690,7 @@ function refreshMessages(caseId) {
   const context = state.conversation;
   if (!validConversation(context) || context.caseId !== caseId) return Promise.resolve();
   if (context.polling) return context.polling;
-  const includeFiles = state.currentCase.status === 'open';
+  const includeFiles = state.currentCase.status !== 'closed';
   const request = async () => {
     const results = await Promise.allSettled([
       api(casePath(caseId, '/messages')),
@@ -630,9 +726,9 @@ function readFileAsDataUrl(file) {
 async function uploadVideo(caseId, file, fileName, _kind = 'upload', context = state.conversation) {
   if (!file || !Number.isFinite(file.size) || file.size > MAX_UPLOAD_BYTES) throw new Error('單檔上限為 3 MiB；請縮小檔案後再上傳（平台請求大小限制）。');
   if (!file.size) throw new Error('不能上傳空白檔案。');
-  if (!validConversation(context) || context.caseId !== caseId || state.currentCase.status !== 'open') throw new Error('案件尚未開通或已切換，無法上傳。');
+  if (!validConversation(context) || context.caseId !== caseId || state.currentCase.status === 'closed') throw new Error('案件已結案或已切換，無法上傳。');
   const dataUrl = await readFileAsDataUrl(file);
-  if (!validConversation(context) || state.currentCase.status !== 'open') throw new Error('案件已切換或無法上傳，檔案尚未送出。');
+  if (!validConversation(context) || state.currentCase.status === 'closed') throw new Error('案件已切換或無法上傳，檔案尚未送出。');
   const { file: saved } = await api(casePath(caseId, '/files'), postOptions({
     dataUrl, fileName, mimeType: file.type || 'application/octet-stream', size: file.size, kind: 'upload'
   }));
@@ -774,21 +870,19 @@ async function enterCitizen(form) {
     nationalId: form.elements.namedItem('nationalId').value
   }));
   if (!data.case?.id) throw new Error('報案申請結果不完整，請稍後重試。');
-  if (data.status !== 'open' || data.case.status !== 'open') {
-    showNotice(data.case.status === 'closed' ? '此案件已結案，請聯絡承辦人員。' : '已送出線上報案開通申請，等待審核。審核完成後，請以同一組資料按「我要視訊報案」。');
-    return;
-  }
   const session = await api('/api/me');
   if (session.user) { showNotice(IDENTITY_NOTICE, 'error'); return; }
   if (session.case?.id !== data.case.id) throw new Error('民眾登入身分驗證失敗，請重新進入案件。');
   state.me = session;
-  if (!await selectCaseNow($('#citizenWorkspace'), data.case, false)) return;
+  const cases = Array.isArray(session.cases) && session.cases.length ? session.cases : Array.isArray(data.cases) && data.cases.length ? data.cases : [data.case];
+  if (!await renderCitizenWorkspace(cases)) return;
   showNotice('已進入線上報案系統，正在連接視訊。');
   state.mediaPending = true;
   state.mediaError = '';
-  try { await joinCall(data.case.id, true, false, state.callRoot); }
+  try { await joinCall(state.currentCase.id, true, false, state.callRoot); }
   catch (error) { showMediaError(error); }
   finally { state.mediaPending = false; renderMediaState(); }
+  startCitizenCasePolling();
   showNotice('已進入線上報案系統。視訊狀態與權限錯誤會顯示在視訊區，訊息與附件仍可使用。');
 }
 
@@ -862,11 +956,9 @@ async function boot() {
   if (citizenEntry && state.me.user) { showNotice(IDENTITY_NOTICE, 'error'); return; }
   if (state.me.user) await showStaffWorkspace();
   else if (state.me.case) {
-    if (state.me.case.status !== 'open') {
-      showNotice(state.me.case.status === 'closed' ? '此案件已結案，請聯絡承辦人員。' : '案件尚待審核；開通後請按「我要視訊報案」重新進入。');
-      return;
-    }
-    await renderCitizenWorkspace(state.me.case);
+    const cases = Array.isArray(state.me.cases) && state.me.cases.length ? state.me.cases : [state.me.case];
+    await renderCitizenWorkspace(cases);
+    startCitizenCasePolling();
     showNotice('已恢復案件工作區。鏡頭與麥克風尚未開啟，請按「開始視訊報案」。');
   }
 }

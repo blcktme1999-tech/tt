@@ -319,18 +319,16 @@ test('rapid selections wait for join and never connect to detached roots or publ
   assert.deepEqual(h.calls.filter(([kind]) => kind === 'connect'), []);
 });
 
-test('pending detail loads messages and approval, but no files/token; approval starts selected receiver', async () => {
+test('legacy pending detail still loads files and can join without approval', async () => {
   const pending = caseItem('p', 'pending'), h = await harness({ cases: [pending] }), root = await h.staff(true);
-  h.route = (url, init, fallback) => url.endsWith('/approve') ? { case: caseItem('p') } : fallback(url, init);
   await h.app.selectCase(root, pending, true); await h.flush();
   assert.ok(h.requests.some((request) => request.url.endsWith('/messages')));
-  assert.equal(h.requests.some((request) => /\/(files|agora-token)$/.test(request.url)), false);
-  assert.equal(h.$('[data-action="approve"]', root).hidden, false);
-  await h.$('[data-action="approve"]', root).fire('click'); await h.flush();
-  assert.equal(h.app.state.currentCase.status, 'open'); assert.equal(h.controllers.length, 0);
+  assert.ok(h.requests.some((request) => request.url.endsWith('/files')));
+  assert.equal(h.$('[data-action="approve"]', root).hidden, true);
+  assert.equal(h.controllers.length, 0);
   await h.joinSelected();
   assert.equal(h.controllers[0].connected, true);
-  assert.ok(h.requests.some((request) => request.url.endsWith('/files')));
+  assert.ok(h.requests.some((request) => request.url.endsWith('/agora-token')));
 });
 
 test('polling and manual refresh keep selected media, composer, filters and never jump to active case', async () => {
@@ -636,8 +634,8 @@ for (const kinds of [[], ['video'], ['audio'], ['video', 'audio']]) {
   });
 }
 
-test('queued toggles reject stale case/root, detached roots and non-open cases before touching devices', async () => {
-  for (const invalidation of ['case', 'root', 'detached', 'closed', 'pending']) {
+test('queued toggles reject stale case/root, detached roots and closed cases before touching devices', async () => {
+  for (const invalidation of ['case', 'root', 'detached', 'closed']) {
     const sdk = mediaSDK(), a = caseItem('a'), b = caseItem('b');
     const h = await harness({ sdk: sdk.sdk, cases: [a, b] }), workspace = await h.staff();
     await h.app.selectCase(workspace, a); await h.joinSelected(); await h.controllers[0].publishBoth();
@@ -651,7 +649,7 @@ test('queued toggles reject stale case/root, detached roots and non-open cases b
     gate.resolve(); await click; await h.flush();
     assert.equal(sdk.clients.length, 1); assert.equal(sdk.clients[0].leaves, 0);
     assert.equal(sdk.clients[0].unpublishes.length, 0); assert.equal(h.controllers[0].tracks.size, 2);
-    assert.match(h.app.state.mediaError, invalidation === 'closed' || invalidation === 'pending' ? /尚未開通或已結案/ : /案件已切換/);
+    assert.match(h.app.state.mediaError, invalidation === 'closed' ? /已結案/ : /案件已切換/);
   }
 });
 
@@ -757,13 +755,15 @@ for (const authenticated of [false, true]) {
 }
 
 for (const status of ['pending', 'closed']) {
-  test(`restored ${status} citizen boot shows notice without workspace, token or capture`, async () => {
+  test(`restored ${status} citizen boot shows workspace without token or capture`, async () => {
     const h = await harness({ me: { case: caseItem('a', status) } });
-    assert.match(h.$('#citizenStatus').textContent, status === 'pending' ? /尚待審核/ : /已結案/);
-    assert.equal(h.app.state.currentCase, null); assert.equal(h.app.state.callRoot, null);
-    assert.equal(h.$('#citizenWorkspace').classList.contains('hidden'), true);
-    assert.equal(h.controllers.length, 0); assert.equal(h.timers.size, 0);
-    assert.deepEqual(h.requests.map((item) => item.url), ['/api/me']);
+    assert.match(h.$('#citizenStatus').textContent, /已恢復案件工作區/);
+    assert.equal(h.app.state.currentCase.status, status); assert.ok(h.app.state.callRoot);
+    assert.equal(h.$('#citizenWorkspace').classList.contains('hidden'), false);
+    assert.equal(h.controllers.length, 0); assert.ok(h.timers.size >= 1);
+    assert.deepEqual(h.requests.map((item) => item.url), status === 'closed'
+      ? ['/api/me', '/api/cases/a/messages']
+      : ['/api/me', '/api/cases/a/messages', '/api/cases/a/files']);
   });
 }
 

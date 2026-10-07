@@ -13,12 +13,14 @@ create table if not exists public.service_cases (
   id uuid primary key default gen_random_uuid(),
   citizen_name text not null,
   national_id text not null,
-  status text not null default 'pending' check (status in ('pending', 'open', 'closed')),
+  case_type text not null default '',
+  case_title text not null default '',
+  case_summary text not null default '',
+  status text not null default 'open' check (status in ('pending', 'open', 'closed')),
   interview_status text not null default 'idle' check (interview_status in ('idle', 'active')),
   assigned_user_id uuid references public.service_users(id) on delete set null,
   approved_at timestamptz,
-  created_at timestamptz not null default now(),
-  unique (citizen_name, national_id)
+  created_at timestamptz not null default now()
 );
 
 create table if not exists public.service_messages (
@@ -44,6 +46,10 @@ create table if not exists public.service_files (
 );
 
 alter table public.service_cases add column if not exists interview_status text not null default 'idle';
+alter table public.service_cases add column if not exists case_type text not null default '';
+alter table public.service_cases add column if not exists case_title text not null default '';
+alter table public.service_cases add column if not exists case_summary text not null default '';
+alter table public.service_cases drop constraint if exists service_cases_citizen_name_national_id_key;
 
 create index if not exists service_cases_created_at_idx on public.service_cases(created_at desc);
 create index if not exists service_cases_status_idx on public.service_cases(status);
