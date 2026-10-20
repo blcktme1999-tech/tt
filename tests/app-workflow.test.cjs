@@ -518,6 +518,23 @@ test('play audio executes directly from clicked current root, not behind workflo
   assert.equal(h.calls.at(-1)[0], 'resumeAudio'); gate.resolve();
 });
 
+test('staff can delete the open case after confirming, and a cancelled confirm leaves it in place', async () => {
+  const a = caseItem('a'), h = await harness({ cases: [a] }), root = await h.staff();
+  await h.app.selectCase(root, a);
+  assert.equal(h.$('[data-action="deleteCase"]', root).textContent, '刪除案件');
+  h.confirm = false;
+  await h.$('[data-action="deleteCase"]', root).fire('click'); await h.flush();
+  assert.equal(h.app.state.currentCase.id, 'a');
+  assert.equal(h.requests.some((item) => item.method === 'DELETE'), false);
+  h.confirm = true;
+  h.route = (url, init, fallback) => init.method === 'DELETE' && url === '/api/cases/a' ? { ok: true } : fallback(url, init);
+  await h.$('[data-action="deleteCase"]', root).fire('click'); await h.flush();
+  assert.equal(h.app.state.currentCase, null);
+  assert.equal(h.app.state.cases.length, 0);
+  assert.equal(h.$('[data-slot="caseSummary"]', root).textContent, '請選擇案件');
+  assert.equal(h.requests.some((item) => item.method === 'DELETE' && item.url === '/api/cases/a'), true);
+});
+
 test('failed manual join shows inline retry and never marks a failed join connected', async () => {
   const a = caseItem('a'), h = await harness({ cases: [a] }), root = await h.staff();
   h.route = (url, init, fallback) => {

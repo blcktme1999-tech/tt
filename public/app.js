@@ -340,7 +340,7 @@ function renderCaseDetail(root, caseItem, isAdmin) {
   if (!summary || !conversation || !media) throw new Error('案件工作區尚未準備完成。');
   for (const node of [summary, conversation, media]) { node.classList.remove('hidden', 'empty-state'); node.dataset.caseId = String(caseItem.id); }
   summary.innerHTML = `<div class="section-heading"><h2>${escapeHtml(caseItem.citizenName)}</h2>
-    ${isAdmin ? '<button type="button" data-action="approve" class="warning">審核開通</button>' : ''}</div>
+    <span>${isAdmin ? '<button type="button" data-action="approve" class="warning">審核開通</button>' : ''}${state.me?.user ? '<button type="button" data-action="deleteCase" class="warning">刪除案件</button>' : ''}</span></div>
     <div class="summary-grid">
       <div class="summary-box">案號/報案編號<strong>${escapeHtml(displayCaseNumber(caseItem))}</strong></div>
       <div class="summary-box">證號<strong>${escapeHtml(displayCaseField(caseItem.certificateNumber))}</strong></div>
@@ -371,6 +371,37 @@ function renderCaseDetail(root, caseItem, isAdmin) {
         <button type="submit">上傳檔案</button>
       </form>
     </section>` : ''}`;
+  $('[data-action="deleteCase"]', summary)?.addEventListener('click', (event) => {
+    const button = event.currentTarget;
+    const label = `${caseItem.citizenName} ${displayCaseNumber(caseItem)}`.trim();
+    if (!window.confirm(`確定刪除「${label}」？這筆案件的公文與附件會一併刪除。`)) return;
+    button.disabled = true;
+    enqueueWorkflow(async () => {
+      if (state.detailRoot !== root || state.currentCase?.id !== caseItem.id) return;
+      await api(casePath(caseItem.id), { method: 'DELETE' });
+      if (state.videoSession) await state.videoSession.disconnect();
+      clearInterval(state.messagePollTimer);
+      state.conversation = null;
+      state.currentCase = null;
+      state.detailRoot = null;
+      state.caseRevision += 1;
+      state.cases = state.cases.filter((item) => item.id !== caseItem.id);
+      for (const slot of ['caseSummary', 'conversation', 'media']) {
+        const node = $(`[data-slot="${slot}"]`, root);
+        if (!node) continue;
+        node.replaceChildren();
+        node.classList.add('hidden');
+        if (slot === 'caseSummary') {
+          node.textContent = '請選擇案件';
+          node.classList.add('empty-state');
+          node.classList.remove('hidden');
+        }
+      }
+      renderAllCaseLists();
+    }).catch((error) => reportActionError(error, summary)).finally(() => {
+      if (button.isConnected) button.disabled = false;
+    });
+  });
   $('[data-action="approve"]', summary)?.addEventListener('click', (event) => {
     const button = event.currentTarget;
     button.disabled = true;

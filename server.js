@@ -694,6 +694,26 @@ app.patch('/api/cases/:caseId/details', requireStaff, (req, res) => {
   res.json({ case: publicCase(updated) });
 });
 
+app.delete('/api/cases/:caseId', requireStaff, (req, res) => {
+  const target = db.prepare('SELECT * FROM cases WHERE id = ?').get(req.params.caseId);
+  if (!target) return res.status(404).json({ error: '找不到案件' });
+  const files = db.prepare('SELECT stored_name FROM files WHERE case_id = ?').all(target.id);
+  const removeCase = db.transaction(() => {
+    db.prepare('DELETE FROM messages WHERE case_id = ?').run(target.id);
+    db.prepare('DELETE FROM files WHERE case_id = ?').run(target.id);
+    db.prepare('DELETE FROM cases WHERE id = ?').run(target.id);
+  });
+  removeCase();
+  for (const file of files) {
+    const storedName = path.basename(String(file.stored_name || ''));
+    if (!storedName) continue;
+    const stored = path.join(UPLOAD_DIR, storedName);
+    if (fs.existsSync(stored)) fs.unlinkSync(stored);
+  }
+  io.to(`case:${target.id}`).emit('case:deleted', { id: target.id });
+  res.json({ ok: true });
+});
+
 app.post('/api/cases/:caseId/approve', requireAdmin, (req, res) => {
   const target = db.prepare('SELECT * FROM cases WHERE id = ?').get(req.params.caseId);
   if (!target) return res.status(404).json({ error: '找不到案件' });
