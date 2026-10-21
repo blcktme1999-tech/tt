@@ -47,6 +47,8 @@
       this.root = null;
       this.client = null;
       this.tracks = new Map();
+      this.preferredCameraId = '';
+      this.cameraLabel = '';
       this.connected = false;
       this.busy = false;
       this.status = 'idle';
@@ -276,7 +278,7 @@
           let publishAttempted = false;
           try {
             track = await (kind === 'video'
-              ? session.sdk.createCameraVideoTrack({ facingMode: 'user' })
+              ? session.sdk.createCameraVideoTrack(this.preferredCameraId ? { cameraId: this.preferredCameraId } : { facingMode: 'user' })
               : session.sdk.createMicrophoneAudioTrack());
             session.owned.add(track);
             this._checkDevice(session, deviceEpoch);
@@ -284,6 +286,7 @@
             await session.client.publish(track);
             this._checkDevice(session, deviceEpoch);
             this.tracks.set(kind, track);
+            if (kind === 'video') this._rememberCamera(track);
           } catch (error) {
             if (track) {
               // A rejected publish may still have partially published at the SDK level.
@@ -302,6 +305,48 @@
         if (kind === 'video' && enabled) {
           const track = this.tracks.get('video');
           this._playVideo(session, track, this._localPlayer(), () => this.tracks.get('video') === track);
+        }
+        this._change();
+      }, epoch);
+    }
+
+    _rememberCamera(track) {
+      if (track && typeof track.getTrackLabel === 'function') {
+        const label = track.getTrackLabel();
+        if (label) this.cameraLabel = label;
+      }
+      const deviceId = track?.getMediaStreamTrack?.()?.getSettings?.()?.deviceId;
+      if (deviceId) this.preferredCameraId = deviceId;
+    }
+
+    async listCameras() {
+      const devices = navigator.mediaDevices;
+      if (!devices?.enumerateDevices) throw new Error('此瀏覽器無法選擇鏡頭');
+      const read = async () => (await devices.enumerateDevices()).filter((item) => item.kind === 'videoinput');
+      let cameras = await read();
+      if (!cameras.length || cameras.every((item) => !item.label)) {
+        const stream = await devices.getUserMedia({ video: true, audio: false });
+        stream.getTracks().forEach((track) => track.stop());
+        cameras = await read();
+      }
+      if (!cameras.length) throw new Error('找不到可用鏡頭');
+      return cameras.map((item, index) => ({
+        deviceId: item.deviceId,
+        label: item.label || `鏡頭 ${index + 1}`
+      }));
+    }
+
+    async useCamera(deviceId, label) {
+      if (!deviceId) throw new Error('請選擇鏡頭');
+      this.preferredCameraId = deviceId;
+      if (label) this.cameraLabel = label;
+      const epoch = this._epoch;
+      return this._enqueue(async () => {
+        if (epoch !== this._epoch) throw cancelled();
+        const track = this.tracks.get('video');
+        if (track && typeof track.setDevice === 'function') {
+          await track.setDevice(deviceId);
+          this._rememberCamera(track);
         }
         this._change();
       }, epoch);

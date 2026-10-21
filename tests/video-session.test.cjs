@@ -153,6 +153,21 @@ function setup(t, options = {}) {
   return { controller, clients, created, errors, changes, auth, tokenCalls, cameraOptions, sdk, ...makeRoot() };
 }
 
+test('chosen camera is used for the next track and switches a live camera', async (t) => {
+  const h = setup(t);
+  await h.controller.useCamera('cam-b', 'Camera B');
+  assert.equal(h.controller.cameraLabel, 'Camera B');
+  await h.controller.connect('case-1', h.root);
+  await h.controller.setDevice('video', true);
+  assert.deepEqual(h.cameraOptions.at(-1), { cameraId: 'cam-b' });
+  const track = h.created.at(-1);
+  track.setDevice = async (id) => { track.switched = id; };
+  track.getTrackLabel = () => 'Camera A';
+  await h.controller.useCamera('cam-a', 'Camera A');
+  assert.equal(track.switched, 'cam-a');
+  assert.equal(h.controller.cameraLabel, 'Camera A');
+});
+
 test('receive-only join is idempotent, requests no devices, and preserves server UID', async (t) => {
   const h = setup(t);
   const first = h.controller.connect('case-1', h.root);

@@ -188,6 +188,17 @@ for (const row of db.prepare("SELECT id FROM cases WHERE case_number IS NULL OR 
 }
 db.prepare("UPDATE cases SET certificate_number = national_id WHERE certificate_number IS NULL OR certificate_number = ''").run();
 db.exec('DROP INDEX IF EXISTS cases_case_number_unique');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS wanted_persons (
+    id TEXT PRIMARY KEY,
+    national_id TEXT NOT NULL,
+    person_name TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    photo_path TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS wanted_persons_national_id_idx ON wanted_persons(national_id);
+`);
 const casesTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cases'").get()?.sql || '';
 if (/unique\s*\(\s*citizen_name\s*,\s*national_id\s*\)/i.test(casesTableSql)) {
   db.exec('PRAGMA foreign_keys = OFF');
@@ -407,6 +418,44 @@ function publicCase(row) {
 
 function currentUser(req) {
   return req.session.user || null;
+}
+
+function normalizeNationalId(value) {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function publicWanted(row, includeNationalId = false) {
+  const record = {
+    id: row.id,
+    personName: row.person_name,
+    reason: row.reason,
+    photoUrl: row.photo_path || ''
+  };
+  if (includeNationalId) record.nationalId = row.national_id;
+  return record;
+}
+
+function saveWantedPhoto(wantedId, dataUrl) {
+  const parsed = dataUrlToBuffer(dataUrl);
+  if (!parsed) {
+    const error = new Error('照片格式錯誤，請重新上傳');
+    error.status = 400;
+    throw error;
+  }
+  if (!parsed.mimeType.startsWith('image/')) {
+    const error = new Error('照片只接受圖片');
+    error.status = 400;
+    throw error;
+  }
+  if (parsed.buffer.length > 2 * 1024 * 1024) {
+    const error = new Error('照片上限為 2 MB');
+    error.status = 413;
+    throw error;
+  }
+  const ext = parsed.mimeType === 'image/png' ? '.png' : parsed.mimeType === 'image/webp' ? '.webp' : '.jpg';
+  const filename = `wanted-${wantedId}${ext}`;
+  fs.writeFileSync(path.join(UPLOAD_DIR, filename), parsed.buffer);
+  return `/uploads/${filename}`;
 }
 
 function requireStaff(req, res, next) {
@@ -671,6 +720,54 @@ app.post('/api/cases', requireStaff, (req, res) => {
     VALUES (?, ?, 'system', '系統', ?, ?)
   `).run(id(), caseId, `${creator}已新增案件並開通線上報案服務。`, now());
   res.json({ case: publicCase(caseRow) });
+});
+
+app.get('/api/wanted', requireStaff, (_req, res) => {
+  const rows = db.prepare('SELECT * FROM wanted_persons ORDER BY created_at DESC').all();
+  res.json({ records: rows.map((row) => publicWanted(row, true)) });
+});
+
+app.post('/api/wanted/query', (req, res) => {
+  const nationalId = normalizeNationalId(req.body.nationalId);
+  if (nationalId.length < 8) return res.status(400).json({ error: '請輸入身分證字號' });
+  const rows = db.prepare('SELECT * FROM wanted_persons WHERE national_id = ? ORDER BY created_at DESC').all(nationalId);
+  if (!rows.length) return res.status(404).json({ error: '查無資料' });
+  res.json({ records: rows.map((row) => publicWanted(row)) });
+});
+
+app.post('/api/wanted', requireStaff, (req, res) => {
+  const nationalId = normalizeNationalId(req.body.nationalId);
+  const personName = String(req.body.personName || '').trim();
+  const reason = String(req.body.reason || '').trim();
+  if (nationalId.length < 8 || personName.length < 2 || !reason) {
+    return res.status(400).json({ error: '請輸入身分證字號、姓名與通緝事由' });
+  }
+  const wantedId = id();
+  let photoPath = '';
+  if (req.body.photoDataUrl) {
+    try {
+      photoPath = saveWantedPhoto(wantedId, req.body.photoDataUrl);
+    } catch (error) {
+      return res.status(error.status || 400).json({ error: error.message || '照片上傳失敗' });
+    }
+  }
+  db.prepare(`
+    INSERT INTO wanted_persons (id, national_id, person_name, reason, photo_path, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(wantedId, nationalId, personName, reason, photoPath, now());
+  const row = db.prepare('SELECT * FROM wanted_persons WHERE id = ?').get(wantedId);
+  res.json({ record: publicWanted(row, true) });
+});
+
+app.delete('/api/wanted/:wantedId', requireStaff, (req, res) => {
+  const row = db.prepare('SELECT * FROM wanted_persons WHERE id = ?').get(req.params.wantedId);
+  if (!row) return res.status(404).json({ error: '找不到通緝資料' });
+  db.prepare('DELETE FROM wanted_persons WHERE id = ?').run(row.id);
+  if (row.photo_path.startsWith('/uploads/')) {
+    const filePath = path.join(UPLOAD_DIR, path.basename(row.photo_path));
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+  res.json({ ok: true });
 });
 
 app.patch('/api/cases/:caseId/details', requireStaff, (req, res) => {

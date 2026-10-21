@@ -283,6 +283,7 @@ test('staff selects idle open case: joins explicitly, independent toggles, no re
   const media = h.app.state.callRoot;
   assert.equal(h.controllers.length, 0);
   assert.equal(h.$('[data-action="joinCall"]', media).textContent, '加入會議');
+  assert.equal(h.$('[data-slot="cameraName"]', media).textContent, '選擇鏡頭');
   assert.match(h.$('[data-slot="caseSummary"]', root).textContent, /115年度受理字\d{6}號/);
   assert.equal(h.app.displayCaseNumber(a), h.app.displayCaseNumber(a));
   await h.joinSelected();

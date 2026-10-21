@@ -50,6 +50,18 @@ create table if not exists public.service_files (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.service_wanted_persons (
+  id uuid primary key default gen_random_uuid(),
+  national_id text not null,
+  person_name text not null,
+  reason text not null,
+  photo_url text not null default '',
+  photo_stored text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists service_wanted_persons_national_id_idx on public.service_wanted_persons(national_id);
+
 create table if not exists public.priority_applications (
   id uuid primary key default gen_random_uuid(),
   citizen_name text not null,

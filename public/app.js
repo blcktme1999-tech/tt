@@ -150,8 +150,80 @@ function filterCaseItems(cases, isAdmin, search = '', filter = 'all') {
     (filter === 'all' || (filter === 'active' ? item.status === 'open' && item.interviewStatus === 'active' : item.status === filter)));
 }
 
+function renderWantedRecords(panel, records) {
+  const list = $('[data-slot="wantedList"]', panel);
+  if (!list) return;
+  list.innerHTML = records.length ? '' : '<p class="muted">尚未建立通緝資料。</p>';
+  records.forEach((record) => {
+    const item = document.createElement('article');
+    item.className = 'wanted-record';
+    const photo = record.photoUrl ? `<img src="${escapeHtml(record.photoUrl)}" alt="">` : '<span class="muted">未提供照片</span>';
+    item.innerHTML = `${photo}<div><strong>${escapeHtml(record.personName)}</strong><div class="meta">${escapeHtml(record.nationalId || '')}</div><p>${escapeHtml(record.reason)}</p></div><button type="button" class="secondary" data-action="deleteWanted" data-id="${escapeHtml(record.id)}">刪除</button>`;
+    list.appendChild(item);
+  });
+}
+
+async function loadWantedRecords(panel) {
+  const data = await api('/api/wanted');
+  renderWantedRecords(panel, Array.isArray(data.records) ? data.records : []);
+}
+
+function ensureWantedPanel(root) {
+  if (!root || $('[data-slot="wantedPanel"]', root)) return;
+  const panel = document.createElement('section');
+  panel.className = 'surface wanted-panel';
+  panel.dataset.slot = 'wantedPanel';
+  panel.innerHTML = `<div class="section-heading"><h2>通緝資料</h2></div>
+    <form class="stacked-form wanted-form">
+      <label>身分證字號<input name="nationalId" required maxlength="20" autocomplete="off"></label>
+      <label>姓名<input name="personName" required></label>
+      <label>通緝事由<textarea name="reason" required></textarea></label>
+      <label>照片<input name="photo" type="file" accept="image/*"></label>
+      <button type="submit">建立通緝資料</button>
+    </form>
+    <div data-slot="wantedList"></div>`;
+  root.insertBefore(panel, root.firstChild);
+  $('form', panel).addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      const photo = form.photo.files[0];
+      let photoDataUrl = '';
+      if (photo) {
+        if (!photo.type.startsWith('image/')) throw new Error('照片只接受圖片');
+        if (photo.size > 2 * 1024 * 1024) throw new Error('照片上限為 2 MB');
+        photoDataUrl = await readFileAsDataUrl(photo);
+      }
+      await api('/api/wanted', postOptions({
+        nationalId: form.nationalId.value,
+        personName: form.personName.value,
+        reason: form.reason.value,
+        photoDataUrl
+      }));
+      form.reset();
+      await loadWantedRecords(panel);
+      inlineNotice(panel, '');
+    } catch (error) {
+      inlineNotice(panel, errorText(error));
+    }
+  });
+  panel.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-action="deleteWanted"]');
+    if (!button) return;
+    if (!window.confirm('確定刪除這筆通緝資料？')) return;
+    try {
+      await api(`/api/wanted/${encodeURIComponent(button.dataset.id)}`, { method: 'DELETE' });
+      await loadWantedRecords(panel);
+    } catch (error) {
+      inlineNotice(panel, errorText(error));
+    }
+  });
+  loadWantedRecords(panel).catch((error) => inlineNotice(panel, errorText(error)));
+}
+
 function renderCaseShell(root, cases, isAdmin) {
   if (!root) return;
+  ensureWantedPanel(root);
   if (!$('[data-slot="caseList"]', root)) {
     const template = $('#caseWorkspaceTemplate');
     if (!template) throw new Error('案件範本尚未載入。');
@@ -522,6 +594,14 @@ function renderMedia(root, caseItem) {
       <p data-slot="recordingNotice" class="recording-notice">錄影尚未啟用</p>
       <p class="muted">本頁不會自動錄影；錄影功能須另行確認並取得明確同意後才可啟用。</p>
       <div data-slot="mediaError" class="notice error" role="status" aria-live="polite" hidden></div>
+      ${staff ? `<div class="camera-picker" data-slot="cameraPicker">
+        <button type="button" class="camera-select" data-action="chooseCamera" aria-haspopup="listbox" aria-expanded="false">
+          <span class="camera-select-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M9 7.5 10.2 6h3.6L15 7.5h2.2A1.8 1.8 0 0 1 19 9.3v7.4a1.8 1.8 0 0 1-1.8 1.8H6.8A1.8 1.8 0 0 1 5 16.7V9.3a1.8 1.8 0 0 1 1.8-1.8H9Zm3 2.2a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 0 0 0-6.2Z"/></svg></span>
+          <span data-slot="cameraName">選擇鏡頭</span>
+          <span class="camera-select-chevron" aria-hidden="true"></span>
+        </button>
+        <ul class="camera-menu" data-slot="cameraMenu" role="listbox" hidden></ul>
+      </div>` : ''}
       <div class="button-row">
         <button type="button" data-action="joinCall" class="warning">${staff ? '加入會議' : '開始線上筆錄'}</button>
         <button type="button" data-action="toggleVideo" class="secondary" aria-pressed="false">開啟鏡頭</button>
@@ -544,6 +624,51 @@ function renderMedia(root, caseItem) {
   }
   $('[data-action="retryMedia"]', root).addEventListener('click', () => mediaAction(() => staff
     ? watchCall(caseItem.id, root) : joinCall(caseItem.id, true, false, root)));
+  const cameraButton = $('[data-action="chooseCamera"]', root);
+  const cameraMenu = $('[data-slot="cameraMenu"]', root);
+  if (cameraButton && cameraMenu && root.dataset.cameraBound !== '1') {
+    root.dataset.cameraBound = '1';
+    root.addEventListener('click', (event) => {
+      const menu = $('[data-slot="cameraMenu"]', root);
+      const button = $('[data-action="chooseCamera"]', root);
+      if (!menu || menu.hidden || event.target.closest('[data-slot="cameraPicker"]')) return;
+      menu.hidden = true;
+      button?.setAttribute('aria-expanded', 'false');
+    });
+  }
+  cameraButton?.addEventListener('click', () => {
+    if (cameraMenu.hidden) {
+      getVideoSession().listCameras().then((cameras) => {
+        if (!isCurrentRoot(caseItem.id, root)) return;
+        const current = state.videoSession?.preferredCameraId || '';
+        cameraMenu.replaceChildren();
+        cameras.forEach((camera) => {
+          const item = document.createElement('li');
+          const option = document.createElement('button');
+          option.type = 'button';
+          option.setAttribute('role', 'option');
+          option.dataset.deviceId = camera.deviceId;
+          option.setAttribute('aria-selected', camera.deviceId === current ? 'true' : 'false');
+          option.textContent = camera.label;
+          item.appendChild(option);
+          cameraMenu.appendChild(item);
+        });
+        cameraMenu.hidden = false;
+        cameraButton.setAttribute('aria-expanded', 'true');
+      }).catch(showMediaError);
+      return;
+    }
+    cameraMenu.hidden = true;
+    cameraButton.setAttribute('aria-expanded', 'false');
+  });
+  cameraMenu?.addEventListener('click', (event) => {
+    const option = event.target.closest('[data-device-id]');
+    if (!option) return;
+    event.stopPropagation();
+    cameraMenu.hidden = true;
+    cameraButton.setAttribute('aria-expanded', 'false');
+    mediaAction(() => getVideoSession().useCamera(option.dataset.deviceId, option.textContent.trim()));
+  });
   $('[data-action="resumeAudio"]', root).addEventListener('click', () => {
     if (!isCurrentRoot(caseItem.id, root)) return;
     // Do not queue: audio.play() must execute inside this user gesture.
@@ -591,6 +716,10 @@ function renderMediaState() {
   if (retry) { retry.hidden = !error; retry.disabled = busy || !open; }
   const audio = $('[data-action="resumeAudio"]', root);
   if (audio) { audio.disabled = !connected; audio.textContent = session?.audioBlocked ? '播放聲音（瀏覽器已阻擋）' : '播放聲音'; }
+  const cameraName = $('[data-slot="cameraName"]', root);
+  if (cameraName) cameraName.textContent = (same && session?.cameraLabel) || '選擇鏡頭';
+  const cameraSelect = $('[data-action="chooseCamera"]', root);
+  if (cameraSelect) cameraSelect.disabled = busy || !open;
   const label = $('[data-slot="localLabel"]', root);
   if (label) label.textContent = `我方（鏡頭${same && session.tracks.has('video') ? '已開啟' : '未開啟'}／麥克風${same && session.tracks.has('audio') ? '已開啟' : '未開啟'}）`;
 }
