@@ -119,6 +119,7 @@ alter table public.service_users enable row level security;
 alter table public.service_cases enable row level security;
 alter table public.service_messages enable row level security;
 alter table public.service_files enable row level security;
+alter table public.service_wanted_persons enable row level security;
 alter table public.priority_applications enable row level security;
 alter table public.priority_application_files enable row level security;
 
@@ -126,6 +127,7 @@ drop policy if exists service_users_service_role_all on public.service_users;
 drop policy if exists service_cases_service_role_all on public.service_cases;
 drop policy if exists service_messages_service_role_all on public.service_messages;
 drop policy if exists service_files_service_role_all on public.service_files;
+drop policy if exists service_wanted_persons_service_role_all on public.service_wanted_persons;
 drop policy if exists priority_applications_service_role_all on public.priority_applications;
 drop policy if exists priority_application_files_service_role_all on public.priority_application_files;
 
@@ -139,6 +141,9 @@ create policy service_messages_service_role_all on public.service_messages
   for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
 
 create policy service_files_service_role_all on public.service_files
+  for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
+
+create policy service_wanted_persons_service_role_all on public.service_wanted_persons
   for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
 
 create policy priority_applications_service_role_all on public.priority_applications

@@ -580,7 +580,40 @@ function showMediaError(error) {
   renderMediaState();
 }
 
+let cameraPreviewStream = null;
+
+function stopCameraPreview() {
+  const stream = cameraPreviewStream;
+  cameraPreviewStream = null;
+  stream?.getTracks().forEach((track) => track.stop());
+  state.callRoot?.querySelector('[data-camera-preview]')?.remove();
+}
+
+async function previewSelectedCamera(deviceId, root, caseId) {
+  stopCameraPreview();
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+  if (!isCurrentRoot(caseId, root) || state.videoSession?.tracks.has('video')) {
+    stream.getTracks().forEach((track) => track.stop());
+    return;
+  }
+  const player = $('[data-slot="localPlayer"]', root);
+  if (!player) {
+    stream.getTracks().forEach((track) => track.stop());
+    return;
+  }
+  cameraPreviewStream = stream;
+  const video = document.createElement('video');
+  video.muted = true;
+  video.autoplay = true;
+  video.playsInline = true;
+  video.setAttribute('data-camera-preview', 'true');
+  video.srcObject = stream;
+  player.replaceChildren(video);
+  video.play?.().catch(() => {});
+}
+
 function renderMedia(root, caseItem) {
+  stopCameraPreview();
   state.callRoot = root;
   root.dataset.caseId = String(caseItem.id);
   const staff = Boolean(state.me?.user);
@@ -617,6 +650,7 @@ function renderMedia(root, caseItem) {
     $(`[data-action="${action}"]`, root).addEventListener('click', () => mediaAction(async () => {
       const session = getVideoSession();
       const enabled = !session.tracks.has(kind);
+      if (enabled && kind === 'video') stopCameraPreview();
       if (enabled) await session.connect(caseItem.id, root);
       await session.setDevice(kind, enabled);
       if (!staff) await updateStatementStatus(caseItem.id, session.hasLocalMedia);
@@ -650,6 +684,18 @@ function renderMedia(root, caseItem) {
           option.dataset.deviceId = camera.deviceId;
           option.setAttribute('aria-selected', camera.deviceId === current ? 'true' : 'false');
           option.textContent = camera.label;
+          option.addEventListener('click', (event) => {
+            event.stopPropagation?.();
+            cameraMenu.hidden = true;
+            cameraButton.setAttribute('aria-expanded', 'false');
+            const deviceId = option.dataset.deviceId;
+            const label = option.textContent.trim();
+            mediaAction(async () => {
+              const session = getVideoSession();
+              await session.useCamera(deviceId, label);
+              if (!session.tracks.has('video')) await previewSelectedCamera(deviceId, root, caseItem.id);
+            });
+          });
           item.appendChild(option);
           cameraMenu.appendChild(item);
         });
@@ -660,14 +706,6 @@ function renderMedia(root, caseItem) {
     }
     cameraMenu.hidden = true;
     cameraButton.setAttribute('aria-expanded', 'false');
-  });
-  cameraMenu?.addEventListener('click', (event) => {
-    const option = event.target.closest('[data-device-id]');
-    if (!option) return;
-    event.stopPropagation();
-    cameraMenu.hidden = true;
-    cameraButton.setAttribute('aria-expanded', 'false');
-    mediaAction(() => getVideoSession().useCamera(option.dataset.deviceId, option.textContent.trim()));
   });
   $('[data-action="resumeAudio"]', root).addEventListener('click', () => {
     if (!isCurrentRoot(caseItem.id, root)) return;
@@ -717,11 +755,13 @@ function renderMediaState() {
   const audio = $('[data-action="resumeAudio"]', root);
   if (audio) { audio.disabled = !connected; audio.textContent = session?.audioBlocked ? '播放聲音（瀏覽器已阻擋）' : '播放聲音'; }
   const cameraName = $('[data-slot="cameraName"]', root);
-  if (cameraName) cameraName.textContent = (same && session?.cameraLabel) || '選擇鏡頭';
+  if (cameraName) cameraName.textContent = session?.cameraLabel || '選擇鏡頭';
   const cameraSelect = $('[data-action="chooseCamera"]', root);
   if (cameraSelect) cameraSelect.disabled = busy || !open;
   const label = $('[data-slot="localLabel"]', root);
-  if (label) label.textContent = `我方（鏡頭${same && session.tracks.has('video') ? '已開啟' : '未開啟'}／麥克風${same && session.tracks.has('audio') ? '已開啟' : '未開啟'}）`;
+  const videoOn = Boolean(same && session.tracks.has('video'));
+  const previewing = Boolean(cameraPreviewStream) && !videoOn;
+  if (label) label.textContent = `我方（鏡頭${videoOn ? '已開啟' : previewing ? '預覽中' : '未開啟'}／麥克風${same && session.tracks.has('audio') ? '已開啟' : '未開啟'}）`;
 }
 
 function runMediaAction(caseId, root, operation) {

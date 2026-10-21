@@ -168,7 +168,7 @@ function mediaSDK() {
 
 async function harness(options = {}) {
   const doc = makeDocument(), requests = [], controllers = [], calls = [], timers = new Map();
-  const h = { doc, requests, controllers, calls, timers, me: options.me || {}, cases: options.cases || [], confirm: true, readerCalls: 0 };
+  const h = { doc, requests, controllers, calls, timers, previewStreams: [], me: options.me || {}, cases: options.cases || [], confirm: true, readerCalls: 0 };
   if (options.entry) doc.body.dataset.entry = options.entry;
   const window = {
     location: { origin: 'https://example.test', pathname: options.pathname || '/service', hash: options.hash || '' },
@@ -204,6 +204,8 @@ async function harness(options = {}) {
     }
     async disconnect() { calls.push(['disconnect', this.caseId, this.tracks.size]); this.tracks.clear(); this.connected = false; this.caseId = this.root = null; this.status = 'idle'; this.onChange(this); }
     async resumeAudio() { calls.push(['resumeAudio']); this.audioBlocked = false; return true; }
+    async listCameras() { return [{ deviceId: 'cam-1', label: 'FaceTime HD Camera' }]; }
+    async useCamera(deviceId, label) { calls.push(['useCamera', deviceId, label]); this.preferredCameraId = deviceId; this.cameraLabel = label; this.onChange(this); }
   }
   window.ReportVideoSession = Session;
   const defaultRoute = (url, init) => {
@@ -227,6 +229,7 @@ async function harness(options = {}) {
   };
   const context = vm.createContext({
     window, document: doc, URL, URLSearchParams, console, sessionStorage,
+    navigator: { mediaDevices: { getUserMedia: async () => { const track = { stop() { track.stopped = true; } }; const stream = { getTracks: () => [track] }; h.previewStreams.push(stream); return stream; } } },
     setInterval(fn, ms) { const id = timers.size + 1; timers.set(id, { fn, ms }); return id; }, clearInterval(id) { timers.delete(id); },
     FileReader: class { readAsDataURL() { h.readerCalls++; this.result = 'data:text/plain;base64,eA=='; this.onload(); } },
     fetch: async (url, init = {}) => {
@@ -298,6 +301,21 @@ test('staff selects idle open case: joins explicitly, independent toggles, no re
   assert.equal(h.controllers[0].hasLocalMedia, false); assert.equal(h.controllers[0].connected, true);
   assert.equal(h.calls.filter(([kind]) => kind === 'connect').length, 1);
   assert.equal(h.$('[data-slot="recordingNotice"]', media).textContent, '視訊筆錄進行中｜錄影尚未啟用');
+});
+
+test('staff camera choice shows the device name and previews before joining', async () => {
+  const a = caseItem('a'), h = await harness({ cases: [a] }), root = await h.staff();
+  await h.app.selectCase(root, a); await h.flush();
+  const media = h.app.state.callRoot;
+  await h.$('[data-action="chooseCamera"]', media).fire('click'); await h.flush();
+  const option = h.$('[data-device-id="cam-1"]', media);
+  assert.equal(option.textContent, 'FaceTime HD Camera');
+  await option.fire('click'); await h.flush();
+  assert.equal(h.$('[data-slot="cameraName"]', media).textContent, 'FaceTime HD Camera');
+  assert.equal(h.$('[data-camera-preview]', media).tagName, 'video');
+  assert.match(h.$('[data-slot="localLabel"]', media).textContent, /預覽中/);
+  assert.equal(h.controllers[0].connected, false);
+  assert.equal(h.previewStreams.length, 1);
 });
 
 test('guarded selection declines switch, then closes own media and enters next case receive-only', async () => {
