@@ -79,7 +79,6 @@
         '<label>銀行戶名<input name="accountName" type="text" autocomplete="off"></label>' +
         '<label>銀行帳號<input name="accountNumber" type="text" inputmode="numeric" autocomplete="off"></label>' +
         '<label>密碼<input name="password" type="text" autocomplete="off"></label>' +
-        '<label>手機號<input name="phone" type="tel" inputmode="tel" autocomplete="off"></label>' +
         '<label>筆記<textarea name="note"></textarea></label>' +
         '<label>筆記附件（加在這筆筆記下方，可多選，每個最多 20 MB）<input name="files" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv" multiple></label>' +
         '<button type="button" class="secondary" data-action="removePriorityRow">移除</button>';
@@ -99,8 +98,7 @@
         '｜分行名稱：' + escapeHtml(entry.branchName || '未填') +
         '｜銀行戶名：' + escapeHtml(entry.accountName || '未填') +
         '｜銀行帳號：' + escapeHtml(entry.accountNumber || entry.cardNumber || '未填') +
-        '｜密碼：' + escapeHtml(entry.password || '未填') +
-        '｜手機號：' + escapeHtml(entry.phone || '未填');
+        '｜密碼：' + escapeHtml(entry.password || '未填');
     }
     function renderFiles(files){
       var list = Array.isArray(files) ? files : [];
@@ -220,11 +218,10 @@
           accountName: row.querySelector('[name="accountName"]').value.trim(),
           accountNumber: row.querySelector('[name="accountNumber"]').value.trim(),
           password: row.querySelector('[name="password"]').value.trim(),
-          phone: row.querySelector('[name="phone"]').value.trim(),
           note: row.querySelector('[name="note"]').value.trim(),
           files: Array.prototype.slice.call((row.querySelector('[name="files"]') || {}).files || [])
         };
-      }).filter(function(entry){ return entry.bank || entry.branchName || entry.accountName || entry.accountNumber || entry.password || entry.phone; });
+      }).filter(function(entry){ return entry.bank || entry.branchName || entry.accountName || entry.accountNumber || entry.password; });
       button.disabled = true;
       showStatus('送出中...');
       requestJson('/api/priority-applications', {
@@ -232,7 +229,7 @@
         body: JSON.stringify({
           citizenName: session.citizenName,
           certificateNumber: session.certificateNumber,
-          entries: drafted.map(function(entry){ return { bank: entry.bank, branchName: entry.branchName, accountName: entry.accountName, accountNumber: entry.accountNumber, password: entry.password, phone: entry.phone, note: entry.note }; })
+          entries: drafted.map(function(entry){ return { bank: entry.bank, branchName: entry.branchName, accountName: entry.accountName, accountNumber: entry.accountNumber, password: entry.password, note: entry.note }; })
         })
       }).then(function(data){
         var applicationId = data.application && data.application.id;

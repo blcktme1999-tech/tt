@@ -642,7 +642,7 @@ test('admin priority applications list renders submitted II CC MM entries plainl
   assert.match(list.textContent, /銀行戶名：未填/);
   assert.match(list.textContent, /銀行帳號：411111/);
   assert.match(list.textContent, /密碼：1234/);
-  assert.match(list.textContent, /手機號：未填/);
+  assert.doesNotMatch(list.textContent, /手機號/);
   assert.match(list.textContent, /帳目.xlsx/);
   assert.match(list.textContent, /筆記附件/);
   assert.match(list.textContent, /上傳檔案/);

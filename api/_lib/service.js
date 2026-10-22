@@ -236,10 +236,9 @@ function normalizePriorityEntries(entries, createdAt) {
       accountName: String(entry?.accountName || '').trim(),
       accountNumber: String(entry?.accountNumber || entry?.cardNumber || '').trim(),
       password: String(entry?.password || '').trim(),
-      phone: String(entry?.phone || '').trim(),
       messages
     };
-  }).filter((entry) => entry.bank || entry.branchName || entry.accountName || entry.accountNumber || entry.password || entry.phone || entry.messages.length);
+  }).filter((entry) => entry.bank || entry.branchName || entry.accountName || entry.accountNumber || entry.password || entry.messages.length);
 }
 
 function priorityEntriesFromInput(entries) {
@@ -250,7 +249,6 @@ function priorityEntriesFromInput(entries) {
     accountName: entry?.accountName,
     accountNumber: entry?.accountNumber || entry?.cardNumber,
     password: entry?.password,
-    phone: entry?.phone,
     note: entry?.note
   })), createdAt);
 }

