@@ -290,46 +290,11 @@
  </div>
  <style>
 .home-poster{position:relative;overflow:hidden;line-height:0}
-.home-poster img{display:none!important;width:100%!important;height:auto!important;cursor:default}
-.home-poster img.is-active{display:block!important}
-.home-poster-dots{position:absolute;left:0;right:0;bottom:14px;display:flex;justify-content:center;gap:8px;margin:0;padding:0;line-height:normal}
-.home-poster-dots button{width:14px;height:14px;border:0;border-radius:50%;background:rgba(255,255,255,.55);padding:0;text-indent:-999px;overflow:hidden;cursor:pointer}
-.home-poster-dots button.is-active{background:#fff}
+.home-poster img{display:block!important;width:100%!important;height:auto!important;cursor:default}
 </style>
-<div class="banner home-poster" aria-roledescription="carousel" aria-label="首頁橫幅">
-<img class="is-active" src="/public/home-posters/stalking.jpg" alt="防制跟蹤騷擾，保障婦幼安全">
-<img src="/public/home-posters/drunk-driving.jpg" alt="生命無價，拒絕酒駕">
-<img src="/public/home-posters/shelter.jpg" alt="避難指引演練熟，危險來臨不用愁">
-<div class="home-poster-dots">
-<button type="button" class="is-active" aria-label="防制跟蹤騷擾">1</button>
-<button type="button" aria-label="拒絕酒駕">2</button>
-<button type="button" aria-label="避難指引">3</button>
+<div class="banner home-poster" aria-label="首頁橫幅">
+<img src="/public/home-posters/165-dashboard.jpg" alt="165打詐儀表板">
 </div>
-</div>
-<script>
-(function () {
-  var root = document.querySelector('.home-poster');
-  if (!root) return;
-  var slides = Array.prototype.slice.call(root.querySelectorAll('img'));
-  var dots = Array.prototype.slice.call(root.querySelectorAll('.home-poster-dots button'));
-  var index = 0;
-  var timer;
-  function show(next) {
-    index = (next + slides.length) % slides.length;
-    slides.forEach(function (img, i) { img.classList.toggle('is-active', i === index); });
-    dots.forEach(function (dot, i) { dot.classList.toggle('is-active', i === index); });
-  }
-  function start() {
-    clearInterval(timer);
-    timer = setInterval(function () { show(index + 1); }, 5000);
-  }
-  dots.forEach(function (dot, i) {
-    dot.addEventListener('click', function () { show(i); start(); });
-  });
-  show(0);
-  start();
-})();
-</script>
 <div id=fs class="container main font-medium">
  <a href=# accesskey=c class=accesskey title=主要內容區 id=accesskey_c>:::</a>
  <div class="row equal-height-thumbnail">
